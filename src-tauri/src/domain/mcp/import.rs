@@ -600,10 +600,12 @@ pub fn import_servers<R: tauri::Runtime>(
     }
 
     let existing_servers = list_for_workspace(db, workspace_id)?;
-    let mut existing_by_name: HashMap<String, super::types::McpServerSummary> = existing_servers
-        .into_iter()
-        .map(|row| (normalize_name(&row.name), row))
-        .collect();
+    let mut existing_by_name: HashMap<String, super::types::McpServerSummary> = HashMap::new();
+    let mut existing_by_key: HashMap<String, super::types::McpServerSummary> = HashMap::new();
+    for row in existing_servers {
+        existing_by_name.insert(normalize_name(&row.name), row.clone());
+        existing_by_key.insert(row.server_key.clone(), row);
+    }
 
     for server in &deduped {
         let normalized = normalize_name(&server.name);
@@ -623,11 +625,39 @@ ON CONFLICT(workspace_id, server_id) DO UPDATE SET
 
                 let mut merged = existing.clone();
                 merged.enabled = true;
-                existing_by_name.insert(normalized, merged);
+                existing_by_name.insert(normalized, merged.clone());
+                existing_by_key.insert(merged.server_key.clone(), merged);
             } else {
                 skipped.push(McpImportSkip {
                     name: server.name.clone(),
                     reason: "already exists; kept existing config".to_string(),
+                });
+            }
+            continue;
+        }
+
+        if let Some(existing) = existing_by_key.get(&server.server_key) {
+            if server.enabled && !existing.enabled {
+                tx.execute(
+                    r#"
+INSERT INTO workspace_mcp_enabled(workspace_id, server_id, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?3)
+ON CONFLICT(workspace_id, server_id) DO UPDATE SET
+  updated_at = excluded.updated_at
+"#,
+                    params![workspace_id, existing.id, now],
+                )
+                .map_err(|e| db_err!("failed to merge enabled imported mcp server by key: {e}"))?;
+                updated += 1;
+
+                let mut merged = existing.clone();
+                merged.enabled = true;
+                existing_by_name.insert(normalized, merged.clone());
+                existing_by_key.insert(merged.server_key.clone(), merged);
+            } else {
+                skipped.push(McpImportSkip {
+                    name: server.name.clone(),
+                    reason: "server_key already exists; kept existing config".to_string(),
                 });
             }
             continue;
@@ -653,24 +683,23 @@ ON CONFLICT(workspace_id, server_id) DO UPDATE SET
             .map_err(|e| db_err!("failed to enable imported mcp server: {e}"))?;
         }
 
-        existing_by_name.insert(
-            normalized,
-            super::types::McpServerSummary {
-                id,
-                server_key: server.server_key.clone(),
-                name: server.name.clone(),
-                transport: server.transport.clone(),
-                command: server.command.clone(),
-                args: server.args.clone(),
-                env: server.env.clone(),
-                cwd: server.cwd.clone(),
-                url: server.url.clone(),
-                headers: server.headers.clone(),
-                enabled: server.enabled,
-                created_at: now,
-                updated_at: now,
-            },
-        );
+        let inserted_row = super::types::McpServerSummary {
+            id,
+            server_key: server.server_key.clone(),
+            name: server.name.clone(),
+            transport: server.transport.clone(),
+            command: server.command.clone(),
+            args: server.args.clone(),
+            env: server.env.clone(),
+            cwd: server.cwd.clone(),
+            url: server.url.clone(),
+            headers: server.headers.clone(),
+            enabled: server.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+        existing_by_name.insert(normalized, inserted_row.clone());
+        existing_by_key.insert(inserted_row.server_key.clone(), inserted_row);
     }
 
     if let Err(err) = sync_all_cli(app, &tx) {

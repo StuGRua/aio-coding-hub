@@ -224,7 +224,6 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
       prevApiKeyRef.current = apiKeyValue;
       resetAllStreamChecks();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKeyValue]);
 
   const prevTestModelRef = useRef(testModel);
@@ -233,7 +232,6 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
       prevTestModelRef.current = testModel;
       resetAllStreamChecks();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testModel]);
 
   const setBaseUrlRowsFromUser: Dispatch<SetStateAction<BaseUrlRow[]>> = (action) => {

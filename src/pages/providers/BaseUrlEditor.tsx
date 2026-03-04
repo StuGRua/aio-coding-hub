@@ -132,8 +132,9 @@ export function BaseUrlEditor({
 
   // Cleanup all in-flight requests on unmount
   useEffect(() => {
+    const controllers = abortControllersRef.current;
     return () => {
-      for (const controller of abortControllersRef.current.values()) {
+      for (const controller of controllers.values()) {
         controller.abort();
       }
     };

@@ -19,4 +19,5 @@ pub(crate) mod provider_circuit_breakers;
 pub(crate) mod request_attempt_logs;
 pub(crate) mod request_logs;
 pub(crate) mod settings;
+pub(crate) mod stream_check;
 pub(crate) mod wsl;

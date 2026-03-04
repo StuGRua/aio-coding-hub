@@ -22,6 +22,7 @@ function TestWrapper({ initial }: { initial: BaseUrlRow[] }) {
     id: String(rows.length + 1),
     url,
     ping: { status: "idle" },
+    streamCheck: { status: "idle" },
   });
 
   return (
@@ -41,7 +42,11 @@ describe("pages/providers/BaseUrlEditor", () => {
     vi.mocked(baseUrlPingMs).mockResolvedValueOnce(null);
     vi.mocked(baseUrlPingMs).mockRejectedValueOnce(new Error("boom"));
 
-    render(<TestWrapper initial={[{ id: "1", url: "", ping: { status: "idle" } }]} />);
+    render(
+      <TestWrapper
+        initial={[{ id: "1", url: "", ping: { status: "idle" }, streamCheck: { status: "idle" } }]}
+      />
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Ping" }));
     expect(vi.mocked(toast)).toHaveBeenCalledWith("Base URL 不能为空");
@@ -64,7 +69,13 @@ describe("pages/providers/BaseUrlEditor", () => {
   it("supports adding and pinging all rows", async () => {
     vi.mocked(baseUrlPingMs).mockResolvedValue(10);
 
-    render(<TestWrapper initial={[{ id: "1", url: "https://a", ping: { status: "idle" } }]} />);
+    render(
+      <TestWrapper
+        initial={[
+          { id: "1", url: "https://a", ping: { status: "idle" }, streamCheck: { status: "idle" } },
+        ]}
+      />
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "+ 添加" }));
     const inputs = screen.getAllByPlaceholderText("https://api.openai.com");

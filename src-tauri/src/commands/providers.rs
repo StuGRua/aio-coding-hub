@@ -395,6 +395,116 @@ pub(crate) async fn base_url_ping_ms(base_url: String) -> Result<u64, String> {
     base_url_probe::probe_base_url_ms(&client, &base_url, std::time::Duration::from_secs(3)).await
 }
 
+#[tauri::command]
+pub(crate) async fn provider_stream_check(
+    app: tauri::AppHandle,
+    db_state: tauri::State<'_, DbInitState>,
+    input: crate::infra::stream_check::ProviderStreamCheckInput,
+) -> Result<crate::infra::stream_check::ProviderStreamCheckResult, String> {
+    use crate::infra::stream_check;
+
+    let model_raw = input.model.as_deref().unwrap_or("").trim();
+    let needs_default_model = model_raw.is_empty() || model_raw.len() > 200;
+
+    // Best-effort DB for dynamic default model selection.
+    // Stream check should still work even if DB isn't ready (fallback models).
+    let mut db_for_stream_check: Option<crate::db::Db> = if needs_default_model {
+        ensure_db_ready(app.clone(), db_state.inner()).await.ok()
+    } else {
+        None
+    };
+
+    // Resolve API key: explicit > DB lookup > error
+    let explicit_key = input
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let api_key = if let Some(key) = explicit_key {
+        key
+    } else if let Some(provider_id) = input.provider_id {
+        let db = match db_for_stream_check.clone() {
+            Some(db) => db,
+            None => ensure_db_ready(app, db_state.inner()).await?,
+        };
+        db_for_stream_check = Some(db.clone());
+
+        let cli_key_for_check = input.cli_key.clone();
+        let (stored_cli_key, stored_key) = blocking::run(
+            "provider_stream_check_get_key",
+            move || -> crate::shared::error::AppResult<(String, String)> {
+                use rusqlite::OptionalExtension;
+                let conn = db.open_connection()?;
+                let row: Option<(String, Option<String>)> = conn
+                    .query_row(
+                        "SELECT cli_key, api_key_plaintext FROM providers WHERE id = ?1",
+                        rusqlite::params![provider_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|e| crate::shared::error::db_err!("failed to query provider: {e}"))?;
+
+                let (cli_key, api_key) = row.ok_or_else(|| {
+                    crate::shared::error::AppError::new("DB_NOT_FOUND", "provider not found")
+                })?;
+
+                if cli_key != cli_key_for_check {
+                    return Err(crate::shared::error::AppError::new(
+                        "SEC_INVALID_INPUT",
+                        "cli_key mismatch with stored provider",
+                    ));
+                }
+
+                Ok((cli_key, api_key.unwrap_or_default()))
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let _ = stored_cli_key;
+        if stored_key.trim().is_empty() {
+            return Ok(stream_check::ProviderStreamCheckResult {
+                ok: false,
+                grade: "failed".to_string(),
+                duration_ms: 0,
+                http_status: None,
+                target_url: String::new(),
+                used_model: String::new(),
+                failure_kind: Some("auth".to_string()),
+                message: Some("该 Provider 未配置 API Key".to_string()),
+                attempts: 0,
+            });
+        }
+        stored_key
+    } else {
+        return Ok(stream_check::ProviderStreamCheckResult {
+            ok: false,
+            grade: "failed".to_string(),
+            duration_ms: 0,
+            http_status: None,
+            target_url: String::new(),
+            used_model: String::new(),
+            failure_kind: Some("auth".to_string()),
+            message: Some("API Key 未提供".to_string()),
+            attempts: 0,
+        });
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent(format!(
+            "aio-coding-hub-stream-check/{}",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|e| format!("STREAM_CHECK_HTTP_CLIENT_INIT: {e}"))?;
+
+    stream_check::stream_check(&client, db_for_stream_check.as_ref(), &input, &api_key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

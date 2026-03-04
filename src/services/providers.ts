@@ -114,3 +114,32 @@ export async function providerClaudeTerminalLaunchCommand(providerId: number) {
     { providerId }
   );
 }
+
+export interface ProviderStreamCheckInput {
+  cli_key: string;
+  base_url: string;
+  api_key?: string;
+  provider_id?: number;
+  model?: string;
+  timeout_ms?: number;
+}
+
+export interface ProviderStreamCheckResult {
+  ok: boolean;
+  grade: "operational" | "degraded" | "failed";
+  duration_ms: number;
+  http_status?: number;
+  target_url: string;
+  used_model: string;
+  failure_kind?: string;
+  message?: string;
+  attempts: number;
+}
+
+export async function providerStreamCheck(input: ProviderStreamCheckInput) {
+  return invokeService<ProviderStreamCheckResult>(
+    "Provider 连接测试失败",
+    "provider_stream_check",
+    { input }
+  );
+}

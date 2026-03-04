@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { cliLongLabel } from "../../constants/clis";
 import { logToConsole } from "../../services/consoleLog";
+import { modelPricesList } from "../../services/modelPrices";
 import {
   providerGetApiKey,
   providerUpsert,
@@ -29,6 +30,7 @@ import {
   type ProviderEditorDialogFormOutput,
 } from "../../schemas/providerEditorDialog";
 import { Button } from "../../ui/Button";
+import { ComboInput } from "../../ui/ComboInput";
 import { Dialog } from "../../ui/Dialog";
 import { FormField } from "../../ui/FormField";
 import { Input } from "../../ui/Input";
@@ -73,7 +75,7 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
   const baseUrlRowSeqRef = useRef(1);
   const newBaseUrlRow = (url = ""): BaseUrlRow => {
     const id = String(baseUrlRowSeqRef.current++);
-    return { id, url, ping: { status: "idle" } };
+    return { id, url, ping: { status: "idle" }, streamCheck: { status: "idle" } };
   };
 
   const [baseUrlMode, setBaseUrlMode] = useState<ProviderBaseUrlMode>("order");
@@ -86,6 +88,8 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [fetchingApiKey, setFetchingApiKey] = useState(false);
   const apiKeyFetchedRef = useRef(false);
+  const [testModel, setTestModel] = useState("");
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
 
   const schema = useMemo(() => createProviderEditorDialogSchema({ mode }), [mode]);
   const form = useForm<ProviderEditorDialogFormInput>({
@@ -106,6 +110,7 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
   });
 
   const { register, reset, setValue, watch } = form;
+  const apiKeyValue = watch("api_key");
   const enabled = watch("enabled");
   const dailyResetMode = watch("daily_reset_mode");
   const limit5hUsd = watch("limit_5h_usd");
@@ -134,6 +139,7 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
       setTags([]);
       setTagInput("");
       setShowApiKey(false);
+      setTestModel("");
       reset({
         name: "",
         api_key: "",
@@ -158,6 +164,7 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
     setTags(props.provider.tags ?? []);
     setTagInput("");
     setShowApiKey(false);
+    setTestModel("");
     reset({
       name: props.provider.name,
       api_key: "",
@@ -181,6 +188,53 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
     // when the provider object reference changes from a background query refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliKey, editingProviderId, mode, open, reset]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    modelPricesList(cliKey)
+      .then((items) => {
+        if (cancelled) return;
+        const models = (items ?? []).map((i) => i.model.trim()).filter(Boolean);
+        setModelOptions(Array.from(new Set(models)));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setModelOptions([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cliKey, open]);
+
+  // Reset all stream check states when apiKey or testModel changes
+  const resetAllStreamChecks = () => {
+    setBaseUrlRows((prev) =>
+      prev.map((row) =>
+        row.streamCheck.status !== "idle" ? { ...row, streamCheck: { status: "idle" } } : row
+      )
+    );
+  };
+
+  const prevApiKeyRef = useRef(apiKeyValue);
+  useEffect(() => {
+    if (prevApiKeyRef.current !== apiKeyValue) {
+      prevApiKeyRef.current = apiKeyValue;
+      resetAllStreamChecks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKeyValue]);
+
+  const prevTestModelRef = useRef(testModel);
+  useEffect(() => {
+    if (prevTestModelRef.current !== testModel) {
+      prevTestModelRef.current = testModel;
+      resetAllStreamChecks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testModel]);
 
   const setBaseUrlRowsFromUser: Dispatch<SetStateAction<BaseUrlRow[]>> = (action) => {
     setBaseUrlRows(action);
@@ -263,6 +317,12 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
         toast(modelError);
         return;
       }
+    }
+
+    // Warn if any stream check failed (non-blocking)
+    const hasFailedStreamCheck = baseUrlRows.some((row) => row.streamCheck.status === "failed");
+    if (hasFailedStreamCheck) {
+      toast.warning("存在连接测试失败的 URL，确定保存？");
     }
 
     setSaving(true);
@@ -425,6 +485,27 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
             newRow={newBaseUrlRow}
             placeholder="中转 endpoint（例如：https://example.com/v1）"
             disabled={saving}
+            cliKey={cliKey}
+            apiKey={apiKeyValue}
+            providerId={editingProviderId ?? undefined}
+            testModel={testModel}
+          />
+        </FormField>
+
+        <FormField label="测试模型" hint="留空使用默认模型">
+          <ComboInput
+            value={testModel}
+            onChange={setTestModel}
+            options={modelOptions}
+            placeholder={
+              cliKey === "claude"
+                ? "claude-haiku-4-5-latest"
+                : cliKey === "gemini"
+                  ? "gemini-2.0-flash"
+                  : "gpt-4.1-mini"
+            }
+            disabled={saving}
+            className="font-mono text-sm"
           />
         </FormField>
 

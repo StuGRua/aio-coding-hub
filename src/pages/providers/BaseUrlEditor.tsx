@@ -1,8 +1,12 @@
-// Usage: Used by ProviderEditorDialog to edit and ping multiple Base URLs.
+// Usage: Used by ProviderEditorDialog to edit, ping and stream-check multiple Base URLs.
 
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
-import { baseUrlPingMs } from "../../services/providers";
+import {
+  baseUrlPingMs,
+  providerStreamCheck,
+  type ProviderStreamCheckResult,
+} from "../../services/providers";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
 import { cn } from "../../utils/cn";
@@ -16,6 +20,10 @@ export type BaseUrlEditorProps = {
   newRow: (url?: string) => BaseUrlRow;
   disabled?: boolean;
   placeholder?: string;
+  cliKey?: string;
+  apiKey?: string;
+  providerId?: number;
+  testModel?: string;
 };
 
 async function pingBaseUrlRow(
@@ -82,6 +90,31 @@ async function pingAllBaseUrlRows(
   }
 }
 
+function applyStreamCheckResult(
+  rowId: string,
+  baseUrl: string,
+  result: ProviderStreamCheckResult,
+  setRows: Dispatch<SetStateAction<BaseUrlRow[]>>
+) {
+  setRows((prev) =>
+    prev.map((row) => {
+      if (row.id !== rowId || row.url.trim() !== baseUrl) return row;
+      if (result.ok) {
+        const status = result.grade === "degraded" ? "degraded" : "operational";
+        return { ...row, streamCheck: { status, ms: result.duration_ms } };
+      }
+      return {
+        ...row,
+        streamCheck: {
+          status: "failed" as const,
+          message: result.message ?? "unknown error",
+          failureKind: result.failure_kind ?? "unknown",
+        },
+      };
+    })
+  );
+}
+
 export function BaseUrlEditor({
   rows,
   setRows,
@@ -90,7 +123,78 @@ export function BaseUrlEditor({
   newRow,
   disabled,
   placeholder,
+  cliKey,
+  apiKey,
+  providerId,
+  testModel,
 }: BaseUrlEditorProps) {
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+
+  // Cleanup all in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      for (const controller of abortControllersRef.current.values()) {
+        controller.abort();
+      }
+    };
+  }, []);
+
+  async function handleStreamCheck(rowId: string, url: string) {
+    const baseUrl = url.trim();
+    if (!baseUrl || !cliKey) return;
+
+    // Abort previous request for this row
+    const prevController = abortControllersRef.current.get(rowId);
+    if (prevController) prevController.abort();
+
+    const controller = new AbortController();
+    abortControllersRef.current.set(rowId, controller);
+
+    setRows((prev) =>
+      prev.map((row) => (row.id === rowId ? { ...row, streamCheck: { status: "checking" } } : row))
+    );
+
+    try {
+      const result = await providerStreamCheck({
+        cli_key: cliKey,
+        base_url: baseUrl,
+        api_key: apiKey || undefined,
+        provider_id: providerId,
+        model: testModel || undefined,
+      });
+
+      if (controller.signal.aborted) return;
+
+      if (result == null) {
+        toast("仅在 Tauri Desktop 环境可用");
+        setRows((prev) =>
+          prev.map((row) => (row.id === rowId ? { ...row, streamCheck: { status: "idle" } } : row))
+        );
+        return;
+      }
+
+      applyStreamCheckResult(rowId, baseUrl, result, setRows);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === rowId && row.url.trim() === baseUrl
+            ? {
+                ...row,
+                streamCheck: {
+                  status: "failed" as const,
+                  message: String(err),
+                  failureKind: "unknown",
+                },
+              }
+            : row
+        )
+      );
+    } finally {
+      abortControllersRef.current.delete(rowId);
+    }
+  }
+
   return (
     <div className="space-y-2">
       {rows.map((row, index) => {
@@ -98,6 +202,12 @@ export function BaseUrlEditor({
         const canMoveDown = index < rows.length - 1;
         const removeDisabled = rows.length <= 1;
         const pinging = row.ping.status === "pinging";
+        const checking = row.streamCheck.status === "checking";
+
+        // Stream check button disabled: URL empty OR (no apiKey AND no providerId)
+        const streamCheckDisabled =
+          !row.url.trim() || (!apiKey?.trim() && providerId == null) || checking || disabled;
+
         const pingBadge =
           row.ping.status === "pinging" ? (
             <span className="text-xs text-slate-400">…</span>
@@ -109,6 +219,21 @@ export function BaseUrlEditor({
             </span>
           ) : null;
 
+        const streamBadge =
+          row.streamCheck.status === "checking" ? (
+            <span className="text-xs text-slate-400">…</span>
+          ) : row.streamCheck.status === "operational" ? (
+            <span className="font-mono text-xs text-emerald-600">{row.streamCheck.ms}ms</span>
+          ) : row.streamCheck.status === "degraded" ? (
+            <span className="font-mono text-xs text-amber-500">{row.streamCheck.ms}ms</span>
+          ) : row.streamCheck.status === "failed" ? (
+            <span className="text-xs text-rose-500" title={row.streamCheck.message}>
+              失败
+            </span>
+          ) : null;
+
+        const hasBadge = pingBadge || streamBadge;
+
         return (
           <div key={row.id} className="flex items-center gap-2">
             <div className="relative flex-1">
@@ -118,16 +243,24 @@ export function BaseUrlEditor({
                   const nextValue = e.currentTarget.value;
                   setRows((prev) =>
                     prev.map((r) =>
-                      r.id === row.id ? { ...r, url: nextValue, ping: { status: "idle" } } : r
+                      r.id === row.id
+                        ? {
+                            ...r,
+                            url: nextValue,
+                            ping: { status: "idle" },
+                            streamCheck: { status: "idle" },
+                          }
+                        : r
                     )
                   );
                 }}
                 placeholder={placeholder ?? "https://api.openai.com"}
-                className={cn("w-full font-mono text-sm h-8 py-1", pingBadge ? "pr-14" : null)}
+                className={cn("w-full font-mono text-sm h-8 py-1", hasBadge ? "pr-24" : null)}
               />
-              {pingBadge ? (
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+              {hasBadge ? (
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   {pingBadge}
+                  {streamBadge}
                 </span>
               ) : null}
             </div>
@@ -181,6 +314,16 @@ export function BaseUrlEditor({
               className="h-8"
             >
               Ping
+            </Button>
+
+            <Button
+              onClick={() => void handleStreamCheck(row.id, row.url)}
+              variant="secondary"
+              size="sm"
+              disabled={streamCheckDisabled}
+              className="h-8"
+            >
+              {checking ? "测试中…" : "测试"}
             </Button>
 
             <Button

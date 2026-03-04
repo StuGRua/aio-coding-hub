@@ -8,8 +8,16 @@ export type BaseUrlPingState =
   | { status: "ok"; ms: number }
   | { status: "error"; message: string };
 
+export type StreamCheckState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "operational"; ms: number }
+  | { status: "degraded"; ms: number }
+  | { status: "failed"; message: string; failureKind: string };
+
 export type BaseUrlRow = {
   id: string;
   url: string;
   ping: BaseUrlPingState;
+  streamCheck: StreamCheckState;
 };

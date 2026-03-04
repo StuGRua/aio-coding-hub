@@ -37,3 +37,7 @@ coverage/
 .cursor/
 .trellis/
 .agents/
+.serena/
+openspec/
+.github/skills/
+.github/prompts/

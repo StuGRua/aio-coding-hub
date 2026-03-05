@@ -238,7 +238,12 @@ fn build_request_body(cli_key: &str, model: &str, prompt: &str) -> serde_json::V
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"maxOutputTokens": 1}
         }),
-        // claude + codex + default share the same shape
+        "claude" => serde_json::json!({
+            "model": model,
+            "max_tokens": 1,
+            "stream": true,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+        }),
         _ => serde_json::json!({
             "model": model,
             "max_tokens": 1,
@@ -456,6 +461,55 @@ pub async fn stream_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── build_request_body ──
+
+    #[test]
+    fn build_request_body_claude_uses_content_blocks() {
+        let body = build_request_body("claude", "claude-haiku-4-5-latest", "ping");
+        let messages = body
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .expect("messages should be an array");
+        let first = messages
+            .first()
+            .and_then(|v| v.as_object())
+            .expect("first message should be an object");
+        let content = first
+            .get("content")
+            .and_then(|v| v.as_array())
+            .expect("claude message content should be an array of blocks");
+        let first_block = content
+            .first()
+            .and_then(|v| v.as_object())
+            .expect("first content block should be an object");
+        assert_eq!(
+            first_block.get("type"),
+            Some(&serde_json::Value::String("text".to_string()))
+        );
+        assert_eq!(
+            first_block.get("text"),
+            Some(&serde_json::Value::String("ping".to_string()))
+        );
+    }
+
+    #[test]
+    fn build_request_body_chat_completions_uses_string_content() {
+        let body = build_request_body("codex", "gpt-4.1-mini", "ping");
+        let messages = body
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .expect("messages should be an array");
+        let first = messages
+            .first()
+            .and_then(|v| v.as_object())
+            .expect("first message should be an object");
+        let content = first
+            .get("content")
+            .and_then(|v| v.as_str())
+            .expect("chat-completions content should be a string");
+        assert_eq!(content, "ping");
+    }
 
     // ── classify_error ──
 

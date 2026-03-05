@@ -1,12 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { toast } from "sonner";
 import { BaseUrlEditor } from "../BaseUrlEditor";
 import type { BaseUrlRow } from "../types";
 import { baseUrlPingMs, providerStreamCheck } from "../../../services/providers";
+import { logToConsole } from "../../../services/consoleLog";
 
 vi.mock("sonner", () => ({ toast: vi.fn() }));
+
+vi.mock("../../../services/consoleLog", () => ({ logToConsole: vi.fn() }));
 
 vi.mock("../../../services/providers", async () => {
   const actual = await vi.importActual<typeof import("../../../services/providers")>(
@@ -14,6 +17,16 @@ vi.mock("../../../services/providers", async () => {
   );
   return { ...actual, baseUrlPingMs: vi.fn(), providerStreamCheck: vi.fn() };
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function TestWrapper({
   initial,
@@ -106,6 +119,7 @@ describe("pages/providers/BaseUrlEditor", () => {
       ok: true,
       grade: "operational",
       duration_ms: 456,
+      http_status: 200,
       target_url: "https://example.com/v1/chat/completions",
       used_model: "gpt-4.1-mini",
       attempts: 1,
@@ -128,6 +142,18 @@ describe("pages/providers/BaseUrlEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "测试" }));
     await waitFor(() => expect(screen.getByText("456ms")).toBeInTheDocument());
+    expect(vi.mocked(logToConsole)).toHaveBeenCalledWith(
+      "info",
+      "供应商连接测试开始",
+      expect.any(Object),
+      "provider_stream_check"
+    );
+    expect(vi.mocked(logToConsole)).toHaveBeenCalledWith(
+      "info",
+      "供应商连接测试成功",
+      expect.any(Object),
+      "provider_stream_check"
+    );
   });
 
   it("runs stream check and shows degraded badge", async () => {
@@ -164,6 +190,7 @@ describe("pages/providers/BaseUrlEditor", () => {
       ok: false,
       grade: "failed",
       duration_ms: 0,
+      http_status: 401,
       target_url: "https://example.com/v1/chat/completions",
       used_model: "gpt-4.1-mini",
       failure_kind: "auth",
@@ -191,6 +218,48 @@ describe("pages/providers/BaseUrlEditor", () => {
       const failBadges = screen.getAllByText("失败");
       expect(failBadges.length).toBeGreaterThanOrEqual(1);
     });
+    expect(vi.mocked(logToConsole)).toHaveBeenCalledWith(
+      "warn",
+      "供应商连接测试失败",
+      expect.any(Object),
+      "provider_stream_check"
+    );
+  });
+
+  it("shows expandable error reason when stream check fails", async () => {
+    vi.mocked(providerStreamCheck).mockResolvedValueOnce({
+      ok: false,
+      grade: "failed",
+      duration_ms: 0,
+      http_status: 429,
+      target_url: "https://example.com/v1/chat/completions",
+      used_model: "gpt-4.1-mini",
+      failure_kind: "rate_limit",
+      message: "rate limit exceeded",
+      attempts: 1,
+    });
+
+    render(
+      <TestWrapper
+        initial={[
+          {
+            id: "1",
+            url: "https://example.com",
+            ping: { status: "idle" },
+            streamCheck: { status: "idle" },
+          },
+        ]}
+        cliKey="claude"
+        apiKey="sk-test"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "测试" }));
+    await waitFor(() => expect(screen.getByText("失败")).toBeInTheDocument());
+
+    const summary = screen.getByText("查看原因");
+    fireEvent.click(summary);
+    await waitFor(() => expect(screen.getByText("rate limit exceeded")).toBeInTheDocument());
   });
 
   it("shows toast when stream check returns null (non-Tauri)", async () => {
@@ -240,6 +309,85 @@ describe("pages/providers/BaseUrlEditor", () => {
       const failBadges = screen.getAllByText("失败");
       expect(failBadges.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it("aborts the current in-flight request on unmount after rapid re-check clicks", async () => {
+    const d1 = deferred<any>();
+    const d2 = deferred<any>();
+
+    vi.mocked(providerStreamCheck).mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+
+    function Harness() {
+      const [rows, setRows] = useState<BaseUrlRow[]>([
+        {
+          id: "1",
+          url: "https://example.com",
+          ping: { status: "idle" },
+          streamCheck: { status: "idle" },
+        },
+      ]);
+      const [pingingAll, setPingingAll] = useState(false);
+      const [show, setShow] = useState(true);
+
+      const newRow = (url = ""): BaseUrlRow => ({
+        id: String(rows.length + 1),
+        url,
+        ping: { status: "idle" },
+        streamCheck: { status: "idle" },
+      });
+
+      return (
+        <div>
+          <button type="button" onClick={() => setShow((prev) => !prev)}>
+            toggle
+          </button>
+          {show ? (
+            <BaseUrlEditor
+              rows={rows}
+              setRows={setRows}
+              pingingAll={pingingAll}
+              setPingingAll={setPingingAll}
+              newRow={newRow}
+              cliKey="claude"
+              apiKey="sk-test"
+            />
+          ) : null}
+        </div>
+      );
+    }
+
+    const ok = (ms: number) => ({
+      ok: true,
+      grade: "operational" as const,
+      duration_ms: ms,
+      target_url: "https://example.com/v1/messages",
+      used_model: "claude-haiku-4-5-latest",
+      attempts: 1,
+    });
+
+    render(<Harness />);
+
+    const testBtn = screen.getByRole("button", { name: "测试" });
+    act(() => {
+      fireEvent.click(testBtn); // call #1
+      fireEvent.click(testBtn); // call #2 (aborts #1) within the same React batch
+    });
+
+    await waitFor(() => expect(vi.mocked(providerStreamCheck)).toHaveBeenCalledTimes(2));
+
+    // Let call #1 finish and run its cleanup. Historically this could delete the newer controller.
+    d1.resolve(ok(111));
+    await d1.promise;
+
+    // Unmount BaseUrlEditor. If the controller map lost call #2's controller, unmount cleanup won't abort it.
+    fireEvent.click(screen.getByRole("button", { name: "toggle" }));
+
+    d2.resolve(ok(222));
+    await d2.promise;
+
+    // Remount BaseUrlEditor: the result of call #2 must not have been applied after unmount.
+    fireEvent.click(screen.getByRole("button", { name: "toggle" }));
+    expect(screen.queryByText("222ms")).toBeNull();
   });
 
   it("disables stream check button when no apiKey and no providerId", () => {

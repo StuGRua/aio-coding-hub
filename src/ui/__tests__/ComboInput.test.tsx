@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ComboInput } from "../ComboInput";
@@ -56,6 +56,22 @@ describe("ui/ComboInput", () => {
     // Click toggle button to close
     fireEvent.click(screen.getByLabelText("关闭选项列表"));
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("closes dropdown on Escape", async () => {
+    function Harness() {
+      const [value, setValue] = useState("");
+      return <ComboInput value={value} onChange={setValue} placeholder="model" options={["a"]} />;
+    }
+
+    render(<Harness />);
+
+    const input = screen.getByPlaceholderText("model");
+    fireEvent.focus(input);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
   });
 
   it("shows no-match text when filter yields no results", async () => {

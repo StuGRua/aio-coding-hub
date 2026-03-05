@@ -2,7 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { ProviderEditorDialog } from "../ProviderEditorDialog";
-import { providerUpsert, type ProviderSummary } from "../../../services/providers";
+import {
+  providerStreamCheck,
+  providerUpsert,
+  type ProviderSummary,
+} from "../../../services/providers";
 
 vi.mock("sonner", () => ({ toast: vi.fn() }));
 vi.mock("../../../services/consoleLog", () => ({ logToConsole: vi.fn() }));
@@ -11,8 +15,23 @@ vi.mock("../../../services/providers", async () => {
   const actual = await vi.importActual<typeof import("../../../services/providers")>(
     "../../../services/providers"
   );
-  return { ...actual, providerUpsert: vi.fn(), baseUrlPingMs: vi.fn() };
+  return {
+    ...actual,
+    providerUpsert: vi.fn(),
+    baseUrlPingMs: vi.fn(),
+    providerStreamCheck: vi.fn(),
+  };
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function makeProvider(partial: Partial<ProviderSummary> = {}): ProviderSummary {
   return {
@@ -119,6 +138,52 @@ describe("pages/providers/ProviderEditorDialog", () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith("claude"));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("ignores stale stream check result after apiKey changes", async () => {
+    const d1 = deferred<any>();
+    vi.mocked(providerStreamCheck).mockReturnValueOnce(d1.promise);
+
+    render(
+      <ProviderEditorDialog
+        mode="create"
+        open={true}
+        cliKey="claude"
+        onSaved={vi.fn()}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByPlaceholderText("default"), { target: { value: "My Provider" } });
+    fireEvent.change(dialog.getByPlaceholderText("sk-…"), { target: { value: "sk-old" } });
+    fireEvent.change(dialog.getByPlaceholderText(/中转 endpoint/), {
+      target: { value: "https://example.com/v1" },
+    });
+
+    fireEvent.click(dialog.getByRole("button", { name: "测试" }));
+    await waitFor(() => expect(vi.mocked(providerStreamCheck)).toHaveBeenCalledTimes(1));
+
+    // Changing api key should reset/abort in-flight checks and ignore stale result.
+    fireEvent.change(dialog.getByPlaceholderText("sk-…"), { target: { value: "sk-new" } });
+    await waitFor(() => expect(dialog.getByRole("button", { name: "测试" })).toBeEnabled());
+
+    let settled = false;
+    d1.promise.finally(() => {
+      settled = true;
+    });
+
+    d1.resolve({
+      ok: true,
+      grade: "operational",
+      duration_ms: 456,
+      target_url: "https://example.com/v1/messages",
+      used_model: "claude-haiku-4-5-latest",
+      attempts: 1,
+    });
+    await waitFor(() => expect(settled).toBe(true));
+
+    expect(screen.queryByText("456ms")).toBeNull();
   });
 
   it("toasts when provider upsert is unavailable (returns null)", async () => {

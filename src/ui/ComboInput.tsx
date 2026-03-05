@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Input } from "./Input";
 import { cn } from "../utils/cn";
@@ -23,6 +23,8 @@ export function ComboInput({
 }: ComboInputProps) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const ignoreNextFocusOpenRef = useRef(false);
 
   const filtered = useMemo(() => {
     const q = value.trim().toLowerCase();
@@ -30,28 +32,20 @@ export function ComboInput({
     return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 50);
   }, [options, value]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!open) return;
-
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Node | null;
-      // Keep open if clicking inside the input or the popover content
-      if (inputRef.current?.parentElement?.contains(target)) return;
-      // PopoverContent is portalled, check by data attribute
-      const popoverContent = (target as Element | null)?.closest?.(
-        "[data-radix-popper-content-wrapper]"
-      );
-      if (popoverContent) return;
-      setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [open]);
+  function scrollListBy(deltaY: number) {
+    const el = listRef.current;
+    if (!el) return false;
+    if (el.scrollHeight <= el.clientHeight) return false;
+    const prev = el.scrollTop;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    const next = Math.max(0, Math.min(prev + deltaY, max));
+    if (next === prev) return false;
+    el.scrollTop = next;
+    return true;
+  }
 
   return (
-    <Popover open={open} modal={false}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverAnchor asChild>
         <div className="relative">
           <Input
@@ -61,7 +55,20 @@ export function ComboInput({
               onChange(e.currentTarget.value);
               if (!open) setOpen(true);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              if (ignoreNextFocusOpenRef.current) {
+                ignoreNextFocusOpenRef.current = false;
+                return;
+              }
+              setOpen(true);
+            }}
+            onWheel={(e) => {
+              if (!open) return;
+              const scrolled = scrollListBy(e.deltaY);
+              if (!scrolled) return;
+              // When the cursor is on the input, redirect wheel to the list and prevent page scroll.
+              e.preventDefault();
+            }}
             placeholder={placeholder}
             disabled={disabled}
             className={cn("pr-9", className)}
@@ -82,10 +89,19 @@ export function ComboInput({
             tabIndex={-1}
             disabled={disabled}
             aria-label={open ? "关闭选项列表" : "打开选项列表"}
+            onPointerDown={(e) => {
+              // Keep focus on input; avoids focus/blur-driven open/close glitches.
+              e.preventDefault();
+            }}
             onClick={() => {
-              setOpen((prev) => !prev);
-              // Refocus input after toggling so user can keep typing
-              inputRef.current?.focus();
+              setOpen((prev) => {
+                const next = !prev;
+                if (next) {
+                  ignoreNextFocusOpenRef.current = true;
+                  inputRef.current?.focus();
+                }
+                return next;
+              });
             }}
           >
             <ChevronDown className="h-4 w-4" />
@@ -95,11 +111,20 @@ export function ComboInput({
 
       <PopoverContent
         align="start"
-        className="w-[var(--radix-popover-trigger-width)] p-1"
+        collisionPadding={12}
+        className="z-[60] w-auto min-w-[var(--radix-popper-anchor-width)] max-w-[90vw] p-1"
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <div role="listbox" className="max-h-64 overflow-auto">
+        <div
+          ref={listRef}
+          role="listbox"
+          className="max-h-64 overflow-y-auto overscroll-contain"
+          onWheel={(e) => {
+            // Keep wheel scrolling inside the list; avoid bubbling to parent scroll containers.
+            e.stopPropagation();
+          }}
+        >
           {filtered.length === 0 ? (
             <div className="px-2 py-1.5 text-sm text-slate-500 dark:text-slate-400">无匹配项</div>
           ) : (
@@ -121,6 +146,7 @@ export function ComboInput({
                 onClick={() => {
                   onChange(opt);
                   setOpen(false);
+                  ignoreNextFocusOpenRef.current = true;
                   inputRef.current?.focus();
                 }}
               >

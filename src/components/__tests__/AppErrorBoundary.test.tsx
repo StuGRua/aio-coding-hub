@@ -116,4 +116,17 @@ describe("components/AppErrorBoundary", () => {
 
     spy.mockRestore();
   });
+
+  it("shows reload action in fallback UI", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <AppErrorBoundary>
+        <ThrowingChild message="reload boom" />
+      </AppErrorBoundary>
+    );
+
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+    consoleSpy.mockRestore();
+  });
 });

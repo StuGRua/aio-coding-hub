@@ -84,4 +84,20 @@ describe("ui/Tooltip", () => {
       expect(screen.getByRole("tooltip").closest(".tip-style")).toBeInTheDocument()
     );
   });
+
+  it("wraps non-element children in span", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip content="Text tip" className="wrapper-class">
+        Plain text child
+      </Tooltip>
+    );
+
+    const wrapper = screen.getByText("Plain text child").closest(".wrapper-class");
+    expect(wrapper).toBeInTheDocument();
+    expect(wrapper?.tagName).toBe("SPAN");
+
+    await user.hover(screen.getByText("Plain text child"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Text tip");
+  });
 });

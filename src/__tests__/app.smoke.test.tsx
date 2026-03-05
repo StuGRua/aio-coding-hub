@@ -25,6 +25,24 @@ vi.mock("../services/noticeEvents", () => ({
   listenNoticeEvents: vi.fn().mockResolvedValue(() => {}),
 }));
 
+vi.mock("../services/appHeartbeat", () => ({
+  listenAppHeartbeat: vi.fn().mockResolvedValue(() => {}),
+}));
+
+vi.mock("../services/taskCompleteNotifyEvents", () => ({
+  listenTaskCompleteNotifyEvents: vi.fn().mockResolvedValue(() => {}),
+  setTaskCompleteNotifyEnabled: vi.fn(),
+}));
+
+vi.mock("../services/cacheAnomalyMonitor", () => ({
+  setCacheAnomalyMonitorEnabled: vi.fn(),
+}));
+
+vi.mock("../services/startup", () => ({
+  startupSyncDefaultPromptsFromFilesOncePerSession: vi.fn().mockResolvedValue(undefined),
+  startupSyncModelPricesOnce: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../services/settings", async () => {
   const actual =
     await vi.importActual<typeof import("../services/settings")>("../services/settings");
@@ -37,6 +55,16 @@ vi.mock("../services/settings", async () => {
 import { listenGatewayEvents } from "../services/gatewayEvents";
 import { listenNoticeEvents } from "../services/noticeEvents";
 import { settingsGet } from "../services/settings";
+import { listenAppHeartbeat } from "../services/appHeartbeat";
+import {
+  listenTaskCompleteNotifyEvents,
+  setTaskCompleteNotifyEnabled,
+} from "../services/taskCompleteNotifyEvents";
+import { setCacheAnomalyMonitorEnabled } from "../services/cacheAnomalyMonitor";
+import {
+  startupSyncDefaultPromptsFromFilesOncePerSession,
+  startupSyncModelPricesOnce,
+} from "../services/startup";
 
 const DEFAULT_HASH = "#/";
 
@@ -58,9 +86,15 @@ async function renderRouteAndFindHeading(hash: string, headingName: string) {
 describe("App (smoke)", () => {
   beforeEach(() => {
     mockLogToConsole.mockReset();
+    vi.mocked(listenAppHeartbeat).mockResolvedValue(() => {});
     vi.mocked(listenGatewayEvents).mockResolvedValue(() => {});
     vi.mocked(listenNoticeEvents).mockResolvedValue(() => {});
+    vi.mocked(listenTaskCompleteNotifyEvents).mockResolvedValue(() => {});
+    vi.mocked(startupSyncModelPricesOnce).mockResolvedValue(undefined);
+    vi.mocked(startupSyncDefaultPromptsFromFilesOncePerSession).mockResolvedValue(undefined);
     vi.mocked(settingsGet).mockResolvedValue(null);
+    vi.mocked(setCacheAnomalyMonitorEnabled).mockReset();
+    vi.mocked(setTaskCompleteNotifyEnabled).mockReset();
   });
 
   afterEach(() => {
@@ -103,5 +137,38 @@ describe("App (smoke)", () => {
         error: expect.stringContaining("notice init failed"),
       })
     );
+  });
+
+  it("syncs startup switches from settings when settings are available", async () => {
+    vi.mocked(settingsGet).mockResolvedValue({
+      enable_cache_anomaly_monitor: true,
+      enable_task_complete_notify: false,
+    } as any);
+
+    renderApp();
+    expect(await screen.findByRole("heading", { level: 1, name: "首页" })).toBeInTheDocument();
+
+    await vi.waitFor(() => {
+      expect(setCacheAnomalyMonitorEnabled).toHaveBeenCalledWith(true);
+      expect(setTaskCompleteNotifyEnabled).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("logs warning when startup settings sync fails", async () => {
+    vi.mocked(settingsGet).mockRejectedValueOnce(new Error("settings init failed"));
+
+    renderApp();
+    expect(await screen.findByRole("heading", { level: 1, name: "首页" })).toBeInTheDocument();
+
+    await vi.waitFor(() => {
+      expect(mockLogToConsole).toHaveBeenCalledWith(
+        "warn",
+        "启动缓存异常监测开关同步失败",
+        expect.objectContaining({
+          stage: "startupSyncCacheAnomalyMonitorSwitch",
+          error: expect.stringContaining("settings init failed"),
+        })
+      );
+    });
   });
 });

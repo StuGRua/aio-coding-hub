@@ -78,6 +78,45 @@ describe("ui/ComboInput", () => {
     expect(await screen.findByText("无匹配项")).toBeInTheDocument();
   });
 
+  it("treats whitespace-only input as empty query and limits results to 50", () => {
+    const options = Array.from({ length: 60 }, (_v, i) => `model-${i}`);
+
+    function Harness() {
+      const [value, setValue] = useState("   ");
+      return <ComboInput value={value} onChange={setValue} placeholder="model" options={options} />;
+    }
+
+    render(<Harness />);
+    fireEvent.focus(screen.getByPlaceholderText("model"));
+
+    expect(screen.getAllByRole("option")).toHaveLength(50);
+    expect(screen.queryByRole("option", { name: "model-59" })).toBeNull();
+  });
+
+  it("supports filtering with special characters and long text", async () => {
+    function Harness() {
+      const [value, setValue] = useState("");
+      return (
+        <ComboInput
+          value={value}
+          onChange={setValue}
+          placeholder="model"
+          options={["gpt+plus", "gpt-pro", "gemini/flash"]}
+        />
+      );
+    }
+
+    render(<Harness />);
+    const input = screen.getByPlaceholderText("model");
+
+    fireEvent.change(input, { target: { value: "+" } });
+    expect(await screen.findByRole("option", { name: "gpt+plus" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "gpt-pro" })).toBeNull();
+
+    fireEvent.change(input, { target: { value: "x".repeat(300) } });
+    expect(await screen.findByText("无匹配项")).toBeInTheDocument();
+  });
+
   it("opens dropdown on typing when closed", () => {
     function Harness() {
       const [value, setValue] = useState("");

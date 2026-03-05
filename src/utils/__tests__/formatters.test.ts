@@ -98,4 +98,24 @@ describe("utils/formatters", () => {
     expect(formatUsdCompact(0.0012)).toBe("$0.0012");
     expect(formatUsdCompact(1.234)).toBe("$1.23");
   });
+
+  it("handles boundary numeric values", () => {
+    expect(formatDurationMs(Infinity)).toBe("—");
+    expect(formatDurationMs(-1)).toBe("0ms");
+    expect(formatDurationMsShort(-1)).toBe("0ms");
+
+    expect(sanitizeTtfbMs(-1, -1)).toBe(0);
+
+    expect(formatInteger(-1)).toBe("0");
+    expect(formatPercent(0.1234, -3)).toBe("12%");
+    expect(formatPercent(0.1234, 99)).toBe("12.340000%");
+
+    expect(formatUsd(-1)).toBe("$0.000000");
+    expect(formatUsdShort(-1)).toBe("$0.00");
+    expect(formatUsdCompact(Infinity)).toBe("—");
+
+    expect(formatCountdownSeconds(-10)).toBe("00:00");
+    expect(formatRelativeTimeFromMs(2_000, 1_000)).toBe("<1分钟");
+    expect(formatBytes(Infinity)).toBe("—");
+  });
 });

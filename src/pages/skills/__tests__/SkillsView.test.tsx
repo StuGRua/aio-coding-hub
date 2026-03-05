@@ -91,7 +91,8 @@ describe("pages/skills/SkillsView", () => {
     fireEvent.click(importDialog.getByRole("button", { name: "确认导入" }));
     await waitFor(() => expect(importMutation.mutateAsync).toHaveBeenCalledWith("local-skill"));
 
-    fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "导入到技能库" })).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "打开目录" }));
     await waitFor(() => expect(tauriRevealItemInDir).toHaveBeenCalledWith("/tmp/local-skill"));
   });
 

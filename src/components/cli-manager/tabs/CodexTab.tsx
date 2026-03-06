@@ -535,6 +535,19 @@ export function CliManagerCodexTab({
               </h3>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 <SettingItem
+                  label="fast_mode"
+                  subtitle="稳定：启用 Fast mode。官网最新描述强调“同一个模型、同样的智能，只是更快”；开启时最高可带来约 1.5x 的 token 速度提升。开启写入 fast_mode=true；"
+                >
+                  <Switch
+                    checked={boolOrDefault(codexConfig.features_fast_mode, false)}
+                    onCheckedChange={(checked) =>
+                      void persistCodexConfig({ features_fast_mode: checked })
+                    }
+                    disabled={saving}
+                  />
+                </SettingItem>
+
+                <SettingItem
                   label="shell_snapshot"
                   subtitle="测试版：快照 shell 环境以加速重复命令。开启写入 shell_snapshot=true；"
                 >

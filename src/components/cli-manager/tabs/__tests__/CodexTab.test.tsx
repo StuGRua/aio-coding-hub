@@ -35,6 +35,7 @@ function createCodexConfig(overrides: Partial<any> = {}) {
     features_remote_compaction: false,
     features_remote_models: false,
     features_multi_agent: false,
+    features_fast_mode: false,
     ...overrides,
   };
 }
@@ -89,7 +90,12 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.change(sandboxSelect, { target: { value: "danger-full-access" } });
     expect(persistCodexConfig).toHaveBeenCalledWith({ sandbox_mode: "danger-full-access" });
 
-    // Toggle a feature switch.
+    // Toggle feature switches.
+    const fastModeItem = screen.getByText("fast_mode").parentElement?.parentElement;
+    expect(fastModeItem).toBeTruthy();
+    fireEvent.click(within(fastModeItem as HTMLElement).getByRole("switch"));
+    expect(persistCodexConfig).toHaveBeenCalledWith({ features_fast_mode: true });
+
     const remoteModelsItem = screen.getByText("remote_models").parentElement?.parentElement;
     expect(remoteModelsItem).toBeTruthy();
     fireEvent.click(within(remoteModelsItem as HTMLElement).getByRole("switch"));

@@ -30,6 +30,7 @@ pub struct CodexConfigState {
     pub features_remote_compaction: Option<bool>,
     pub features_remote_models: Option<bool>,
     pub features_multi_agent: Option<bool>,
+    pub features_fast_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,6 +52,7 @@ pub struct CodexConfigPatch {
     pub features_remote_compaction: Option<bool>,
     pub features_remote_models: Option<bool>,
     pub features_multi_agent: Option<bool>,
+    pub features_fast_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -543,8 +545,9 @@ enum TableStyle {
     Dotted,
 }
 
-const FEATURES_KEY_ORDER: [&str; 8] = [
+const FEATURES_KEY_ORDER: [&str; 9] = [
     // Keep in sync with the UI order (CliManagerCodexTab / Features section).
+    "fast_mode",
     "shell_snapshot",
     "unified_exec",
     "shell_tool",
@@ -872,6 +875,7 @@ fn make_state_from_bytes(
         features_remote_compaction: None,
         features_remote_models: None,
         features_multi_agent: None,
+        features_fast_mode: None,
     };
 
     let Some(bytes) = bytes else {
@@ -962,6 +966,7 @@ fn make_state_from_bytes(
             }
             ("features", "remote_models") => state.features_remote_models = parse_bool(&raw_value),
             ("features", "multi_agent") => state.features_multi_agent = parse_bool(&raw_value),
+            ("features", "fast_mode") => state.features_fast_mode = parse_bool(&raw_value),
 
             _ => {}
         }
@@ -1353,7 +1358,8 @@ fn patch_config_toml(
         || patch.features_exec_policy.is_some()
         || patch.features_remote_compaction.is_some()
         || patch.features_remote_models.is_some()
-        || patch.features_multi_agent.is_some();
+        || patch.features_multi_agent.is_some()
+        || patch.features_fast_mode.is_some();
 
     if has_any_feature_patch {
         let mut items: Vec<(&str, Option<String>)> = Vec::new();
@@ -1382,6 +1388,9 @@ fn patch_config_toml(
         }
         if let Some(v) = patch.features_multi_agent {
             items.push(("multi_agent", v.then(|| "true".to_string())));
+        }
+        if let Some(v) = patch.features_fast_mode {
+            items.push(("fast_mode", v.then(|| "true".to_string())));
         }
 
         upsert_keys_auto_style(&mut lines, "features", &FEATURES_KEY_ORDER, items);

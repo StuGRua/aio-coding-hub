@@ -17,6 +17,7 @@ fn empty_patch() -> CodexConfigPatch {
         features_remote_compaction: None,
         features_remote_models: None,
         features_multi_agent: None,
+        features_fast_mode: None,
     }
 }
 
@@ -379,4 +380,63 @@ fn patch_updates_sandbox_dotted_mode_when_present() {
     assert!(s.contains("sandbox.mode = \"danger-full-access\""), "{s}");
     assert!(!s.contains("[sandbox]"), "{s}");
     assert!(!s.contains("sandbox_mode ="), "{s}");
+}
+
+#[test]
+fn patch_writes_fast_mode_when_enabled() {
+    let input = r#"[features]
+shell_tool = true
+"#;
+
+    let out = patch_config_toml(
+        Some(input.as_bytes().to_vec()),
+        CodexConfigPatch {
+            features_fast_mode: Some(true),
+            ..empty_patch()
+        },
+    )
+    .expect("patch_config_toml");
+
+    let s = String::from_utf8(out).expect("utf8");
+    assert!(s.contains("fast_mode = true"), "{s}");
+    assert!(s.contains("shell_tool = true"), "{s}");
+}
+
+#[test]
+fn patch_deletes_fast_mode_when_disabled() {
+    let input = r#"[features]
+fast_mode = true
+shell_tool = true
+"#;
+
+    let out = patch_config_toml(
+        Some(input.as_bytes().to_vec()),
+        CodexConfigPatch {
+            features_fast_mode: Some(false),
+            ..empty_patch()
+        },
+    )
+    .expect("patch_config_toml");
+
+    let s = String::from_utf8(out).expect("utf8");
+    assert!(!s.contains("fast_mode ="), "{s}");
+    assert!(s.contains("shell_tool = true"), "{s}");
+}
+
+#[test]
+fn get_reads_fast_mode_from_features_table() {
+    let state = make_state_from_bytes(
+        "/home/user/.codex".to_string(),
+        "/home/user/.codex/config.toml".to_string(),
+        true,
+        Some(
+            b"[features]
+fast_mode = true
+"
+            .to_vec(),
+        ),
+    )
+    .expect("make_state_from_bytes");
+
+    assert_eq!(state.features_fast_mode, Some(true));
 }

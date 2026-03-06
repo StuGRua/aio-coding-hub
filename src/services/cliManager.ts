@@ -120,6 +120,7 @@ export type CodexConfigState = {
   features_remote_compaction: boolean | null;
   features_remote_models: boolean | null;
   features_multi_agent: boolean | null;
+  features_fast_mode: boolean | null;
 };
 
 export type CodexConfigPatch = Partial<{
@@ -140,6 +141,7 @@ export type CodexConfigPatch = Partial<{
   features_remote_compaction: boolean;
   features_remote_models: boolean;
   features_multi_agent: boolean;
+  features_fast_mode: boolean;
 }>;
 
 export type CodexConfigTomlState = {

@@ -38,9 +38,6 @@ pub fn setup_tray(_app: &tauri::AppHandle) -> crate::shared::error::AppResult<()
 pub fn show_main_window(_app: &tauri::AppHandle) {}
 
 #[cfg(not(desktop))]
-pub fn apply_startup_visibility(_app: &tauri::AppHandle, _silent: bool) {}
-
-#[cfg(not(desktop))]
 pub fn on_window_event(_window: &tauri::Window, _event: &tauri::WindowEvent) {}
 
 #[cfg(desktop)]
@@ -141,23 +138,6 @@ fn set_dock_visibility(app: &tauri::AppHandle, visible: bool) {
     if let Err(err) = app.set_activation_policy(policy) {
         tracing::warn!("failed to set activation policy: {err}");
     }
-}
-
-/// Apply startup visibility: hide the window (and dock on macOS) when `silent` is `true`.
-///
-/// Call this after tray setup so the tray icon is available before the window disappears.
-/// Falls through silently if the main window does not yet exist.
-#[cfg(desktop)]
-pub fn apply_startup_visibility(app: &tauri::AppHandle, silent: bool) {
-    if !silent {
-        return;
-    }
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-    let _ = window.hide();
-    #[cfg(target_os = "macos")]
-    set_dock_visibility(app, false);
 }
 
 #[cfg(desktop)]

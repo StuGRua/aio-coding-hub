@@ -15,6 +15,7 @@
         "title": "AIO Coding Hub",
         "width": 1500,
         "height": 900,
+        "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }

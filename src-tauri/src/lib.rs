@@ -117,19 +117,22 @@ pub fn run() {
                     tracing::error!("system tray initialization failed: {}", err);
                 }
 
-                // Apply silent startup: if launched by OS autostart and settings require it,
-                // hide the main window immediately so the app stays in the tray only.
+                // Window starts hidden (visible:false in tauri.conf.json) to avoid flash.
+                // Show it now unless silent startup conditions are met.
                 let startup_flags = startup_flags_from_args(std::env::args());
-                if startup_flags.is_autostart {
+                let silent = if startup_flags.is_autostart {
                     let startup_settings = settings::read(app.handle()).unwrap_or_default();
-                    if should_apply_silent_startup(
+                    should_apply_silent_startup(
                         startup_flags.is_autostart,
                         startup_flags.requested_silent,
                         startup_settings.silent_startup,
                         startup_settings.tray_enabled,
-                    ) {
-                        resident::apply_startup_visibility(app.handle(), true);
-                    }
+                    )
+                } else {
+                    false
+                };
+                if !silent {
+                    resident::show_main_window(app.handle());
                 }
             }
 

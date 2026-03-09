@@ -16,6 +16,7 @@ describe("MSW defaults", () => {
       wsl_custom_host_address: "127.0.0.1",
       auto_start: false,
       tray_enabled: true,
+      silent_startup: false,
       enable_cli_proxy_startup_recovery: true,
       log_retention_days: 7,
       provider_cooldown_seconds: 30,

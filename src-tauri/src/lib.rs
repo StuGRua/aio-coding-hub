@@ -28,6 +28,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 use tauri::Manager;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct StartupFlags {
+    is_autostart: bool,
+    requested_silent: bool,
+}
+
+fn startup_flags_from_args<I, S>(args: I) -> StartupFlags
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut flags = StartupFlags::default();
+    for arg in args {
+        match arg.as_ref() {
+            "--autostart" => flags.is_autostart = true,
+            "--silent-startup" => flags.requested_silent = true,
+            _ => {}
+        }
+    }
+    flags
+}
+
+fn should_apply_silent_startup(
+    is_autostart: bool,
+    requested_silent: bool,
+    silent_startup_enabled: bool,
+    tray_enabled: bool,
+) -> bool {
+    is_autostart && requested_silent && silent_startup_enabled && tray_enabled
+}
+
 static EXIT_CLEANUP_SPAWNED: AtomicBool = AtomicBool::new(false);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -42,7 +73,13 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = builder
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        // "--autostart" is injected into the OS autostart entry so startup code can
+        // detect whether this launch was triggered by system login autostart.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--autostart"])
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             resident::show_main_window(app);
@@ -78,6 +115,21 @@ pub fn run() {
 
                 if let Err(err) = resident::setup_tray(app.handle()) {
                     tracing::error!("system tray initialization failed: {}", err);
+                }
+
+                // Apply silent startup: if launched by OS autostart and settings require it,
+                // hide the main window immediately so the app stays in the tray only.
+                let startup_flags = startup_flags_from_args(std::env::args());
+                if startup_flags.is_autostart {
+                    let startup_settings = settings::read(app.handle()).unwrap_or_default();
+                    if should_apply_silent_startup(
+                        startup_flags.is_autostart,
+                        startup_flags.requested_silent,
+                        startup_settings.silent_startup,
+                        startup_settings.tray_enabled,
+                    ) {
+                        resident::apply_startup_visibility(app.handle(), true);
+                    }
                 }
             }
 
@@ -435,6 +487,27 @@ pub fn run() {
 /// Currently only the `settings` module is registered (POC / gradual migration).
 ///
 /// Run `cargo test export_bindings -- --ignored` to regenerate `src/generated/bindings.ts`.
+#[cfg(test)]
+mod startup_context_tests {
+    use super::{should_apply_silent_startup, startup_flags_from_args};
+
+    #[test]
+    fn parses_autostart_and_silent_startup_flags() {
+        let flags = startup_flags_from_args(["app.exe", "--autostart", "--silent-startup"]);
+        assert!(flags.is_autostart);
+        assert!(flags.requested_silent);
+    }
+
+    #[test]
+    fn silent_startup_requires_autostart_silent_arg_and_supported_settings() {
+        assert!(should_apply_silent_startup(true, true, true, true));
+        assert!(!should_apply_silent_startup(false, true, true, true));
+        assert!(!should_apply_silent_startup(true, false, true, true));
+        assert!(!should_apply_silent_startup(true, true, false, true));
+        assert!(!should_apply_silent_startup(true, true, true, false));
+    }
+}
+
 #[cfg(test)]
 #[test]
 #[ignore = "run manually: cargo test export_bindings -- --ignored"]

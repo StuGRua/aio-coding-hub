@@ -38,6 +38,7 @@ export type AppSettings = {
   wsl_target_cli: WslTargetCli;
   auto_start: boolean;
   tray_enabled: boolean;
+  silent_startup: boolean;
   enable_cli_proxy_startup_recovery: boolean;
   log_retention_days: number;
   provider_cooldown_seconds: number;
@@ -73,6 +74,7 @@ export type SettingsUpdate = {
   gatewayCustomListenAddress: string | null;
   autoStart: boolean;
   trayEnabled: boolean | null;
+  silentStartup: boolean | null;
   enableCliProxyStartupRecovery: boolean | null;
   logRetentionDays: number;
   providerCooldownSeconds: number | null;

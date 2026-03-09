@@ -13,6 +13,7 @@ fn settings_read_defaults() {
     // Verify key default values.
     assert_eq!(json_i64(&settings, "preferred_port"), 37123);
     assert!(!json_bool(&settings, "auto_start"));
+    assert!(!json_bool(&settings, "silent_startup"));
     assert!(json_bool(&settings, "tray_enabled"));
     assert_eq!(json_i64(&settings, "log_retention_days"), 7);
     assert_eq!(json_i64(&settings, "failover_max_attempts_per_provider"), 5);
@@ -37,6 +38,7 @@ fn settings_update_and_re_read() {
     let mut update = defaults;
     update["preferred_port"] = serde_json::json!(38000);
     update["log_retention_days"] = serde_json::json!(7);
+    update["silent_startup"] = serde_json::json!(true);
     update["failover_max_attempts_per_provider"] = serde_json::json!(3);
 
     let updated =
@@ -44,6 +46,7 @@ fn settings_update_and_re_read() {
 
     assert_eq!(json_i64(&updated, "preferred_port"), 38000);
     assert_eq!(json_i64(&updated, "log_retention_days"), 7);
+    assert!(json_bool(&updated, "silent_startup"));
     assert_eq!(json_i64(&updated, "failover_max_attempts_per_provider"), 3);
 
     // Re-read to verify persistence.
@@ -52,6 +55,7 @@ fn settings_update_and_re_read() {
 
     assert_eq!(json_i64(&re_read, "preferred_port"), 38000);
     assert_eq!(json_i64(&re_read, "log_retention_days"), 7);
+    assert!(json_bool(&re_read, "silent_startup"));
     assert_eq!(json_i64(&re_read, "failover_max_attempts_per_provider"), 3);
     // Fields not modified should retain their defaults.
     assert!(!json_bool(&re_read, "auto_start"));

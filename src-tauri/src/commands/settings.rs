@@ -3,6 +3,80 @@
 use crate::{blocking, resident, settings};
 use tauri::Manager;
 
+#[cfg(desktop)]
+fn desired_autostart_args(tray_enabled: bool, silent_startup: bool) -> Vec<&'static str> {
+    if tray_enabled && silent_startup {
+        vec!["--autostart", "--silent-startup"]
+    } else {
+        vec!["--autostart"]
+    }
+}
+
+#[cfg(desktop)]
+fn sync_autostart(
+    app: &tauri::AppHandle,
+    auto_start: bool,
+    tray_enabled: bool,
+    silent_startup: bool,
+) -> Result<(), String> {
+    use auto_launch::AutoLaunchBuilder;
+
+    let package_name = &app.package_info().name;
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("failed to resolve current executable for autostart: {e}"))?;
+    let args = desired_autostart_args(tray_enabled, silent_startup);
+
+    let mut builder = AutoLaunchBuilder::new();
+    builder.set_app_name(package_name);
+    builder.set_args(&args);
+
+    #[cfg(windows)]
+    builder.set_app_path(&current_exe.display().to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        let exe_path = current_exe
+            .canonicalize()
+            .map_err(|e| format!("failed to canonicalize executable for autostart: {e}"))?
+            .display()
+            .to_string();
+        let parts: Vec<&str> = exe_path.split(".app/").collect();
+        let app_path = if parts.len() == 2 {
+            format!("{}.app", parts.first().unwrap_or(&""))
+        } else {
+            exe_path
+        };
+        builder.set_use_launch_agent(true);
+        builder.set_app_path(&app_path);
+    }
+
+    #[cfg(target_os = "linux")]
+    if let Some(appimage) = app
+        .env()
+        .appimage
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+    {
+        builder.set_app_path(&appimage);
+    } else {
+        builder.set_app_path(&current_exe.display().to_string());
+    }
+
+    let autolaunch = builder
+        .build()
+        .map_err(|e| format!("failed to build autostart entry: {e}"))?;
+
+    if auto_start {
+        autolaunch.disable().ok();
+        autolaunch
+            .enable()
+            .map_err(|e| format!("failed to enable autostart: {e}"))
+    } else {
+        autolaunch
+            .disable()
+            .map_err(|e| format!("failed to disable autostart: {e}"))
+    }
+}
+
 /// Encapsulates all fields for the `settings_set` command.
 #[derive(serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +86,7 @@ pub(crate) struct SettingsUpdate {
     pub gateway_custom_listen_address: Option<String>,
     pub auto_start: bool,
     pub tray_enabled: Option<bool>,
+    pub silent_startup: Option<bool>,
     pub enable_cli_proxy_startup_recovery: Option<bool>,
     pub log_retention_days: u32,
     pub provider_cooldown_seconds: Option<u32>,
@@ -41,6 +116,21 @@ pub(crate) struct SettingsUpdate {
     pub wsl_custom_host_address: Option<String>,
 }
 
+#[cfg(all(test, desktop))]
+mod autostart_arg_tests {
+    use super::desired_autostart_args;
+
+    #[test]
+    fn adds_silent_flag_only_when_tray_and_silent_are_enabled() {
+        assert_eq!(
+            desired_autostart_args(true, true),
+            vec!["--autostart", "--silent-startup"]
+        );
+        assert_eq!(desired_autostart_args(true, false), vec!["--autostart"]);
+        assert_eq!(desired_autostart_args(false, true), vec!["--autostart"]);
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn settings_get(app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
@@ -61,6 +151,7 @@ pub(crate) async fn settings_set(
         gateway_custom_listen_address,
         auto_start,
         tray_enabled,
+        silent_startup,
         enable_cli_proxy_startup_recovery,
         log_retention_days,
         provider_cooldown_seconds,
@@ -97,6 +188,7 @@ pub(crate) async fn settings_set(
             let previous = settings::read(&app_for_work).unwrap_or_default();
             let update_releases_url = update_releases_url.unwrap_or(previous.update_releases_url);
             let tray_enabled = tray_enabled.unwrap_or(previous.tray_enabled);
+            let silent_startup = silent_startup.unwrap_or(previous.silent_startup);
             let enable_cli_proxy_startup_recovery = enable_cli_proxy_startup_recovery
                 .unwrap_or(previous.enable_cli_proxy_startup_recovery);
             let provider_cooldown_seconds =
@@ -153,20 +245,11 @@ pub(crate) async fn settings_set(
 
             #[cfg(desktop)]
             {
-                if auto_start != previous.auto_start {
-                    use tauri_plugin_autostart::ManagerExt;
-
-                    let result = if auto_start {
-                        app_for_work
-                            .autolaunch()
-                            .enable()
-                            .map_err(|e| format!("failed to enable autostart: {e}"))
-                    } else {
-                        app_for_work
-                            .autolaunch()
-                            .disable()
-                            .map_err(|e| format!("failed to disable autostart: {e}"))
-                    };
+                let autostart_args_changed = previous.tray_enabled != tray_enabled
+                    || previous.silent_startup != silent_startup;
+                if auto_start != previous.auto_start || (auto_start && autostart_args_changed) {
+                    let result =
+                        sync_autostart(&app_for_work, auto_start, tray_enabled, silent_startup);
 
                     if let Err(err) = result {
                         tracing::warn!("auto-start sync failed: {}", err);
@@ -186,6 +269,7 @@ pub(crate) async fn settings_set(
                 wsl_custom_host_address,
                 auto_start: next_auto_start,
                 tray_enabled,
+                silent_startup,
                 enable_cli_proxy_startup_recovery,
                 log_retention_days,
                 provider_cooldown_seconds,

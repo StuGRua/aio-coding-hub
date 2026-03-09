@@ -39,6 +39,7 @@ dependencies = [
 name = "aio-coding-hub"
 version = "0.30.11"
 dependencies = [
+ "auto-launch",
  "axum",
  "base64 0.22.1",
  "bytes",

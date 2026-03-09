@@ -30,6 +30,8 @@ export function SettingsPage() {
             commitNumberField={persistence.commitNumberField}
             autoStart={persistence.autoStart}
             setAutoStart={persistence.setAutoStart}
+            silentStartup={persistence.silentStartup}
+            setSilentStartup={persistence.setSilentStartup}
             trayEnabled={persistence.trayEnabled}
             setTrayEnabled={persistence.setTrayEnabled}
             logRetentionDays={persistence.logRetentionDays}

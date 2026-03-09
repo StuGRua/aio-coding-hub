@@ -9,7 +9,7 @@ use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 const SCHEMA_VERSION_DISABLE_UPSTREAM_TIMEOUTS: u32 = 7;
 const SCHEMA_VERSION_ADD_GATEWAY_RECTIFIERS: u32 = 8;
 const SCHEMA_VERSION_ADD_CIRCUIT_BREAKER_NOTICE: u32 = 9;
@@ -22,6 +22,7 @@ const SCHEMA_VERSION_ADD_CACHE_ANOMALY_MONITOR: u32 = 15;
 const SCHEMA_VERSION_ADD_WSL_HOST_ADDRESS_MODE: u32 = 16;
 const SCHEMA_VERSION_ADD_TASK_COMPLETE_NOTIFY: u32 = 17;
 const SCHEMA_VERSION_ADD_CCH_BASE_CONFIG: u32 = 18;
+const SCHEMA_VERSION_ADD_SILENT_STARTUP: u32 = 19;
 pub const DEFAULT_GATEWAY_PORT: u16 = 37123;
 pub const MAX_GATEWAY_PORT: u16 = 37199;
 const DEFAULT_LOG_RETENTION_DAYS: u32 = 7;
@@ -45,6 +46,7 @@ const DEFAULT_ENABLE_CACHE_ANOMALY_MONITOR: bool = false;
 const DEFAULT_ENABLE_TASK_COMPLETE_NOTIFY: bool = true;
 const DEFAULT_ENABLE_RESPONSE_FIXER: bool = true;
 const DEFAULT_ENABLE_CLI_PROXY_STARTUP_RECOVERY: bool = true;
+const DEFAULT_SILENT_STARTUP: bool = false;
 const DEFAULT_RESPONSE_FIXER_FIX_ENCODING: bool = true;
 const DEFAULT_RESPONSE_FIXER_FIX_SSE_FORMAT: bool = true;
 const DEFAULT_RESPONSE_FIXER_FIX_TRUNCATED_JSON: bool = true;
@@ -141,6 +143,9 @@ pub struct AppSettings {
     pub tray_enabled: bool,
     // Startup crash recovery for CLI proxy takeover (default enabled).
     pub enable_cli_proxy_startup_recovery: bool,
+    // Silent startup: when enabled alongside auto_start + tray_enabled, the main window is hidden
+    // on system-login-triggered launches (identified via --autostart --silent-startup args).
+    pub silent_startup: bool,
     pub log_retention_days: u32,
     pub provider_cooldown_seconds: u32,
     pub provider_base_url_ping_cache_ttl_seconds: u32,
@@ -190,6 +195,7 @@ impl Default for AppSettings {
             auto_start: false,
             tray_enabled: true,
             enable_cli_proxy_startup_recovery: DEFAULT_ENABLE_CLI_PROXY_STARTUP_RECOVERY,
+            silent_startup: DEFAULT_SILENT_STARTUP,
             log_retention_days: DEFAULT_LOG_RETENTION_DAYS,
             provider_cooldown_seconds: DEFAULT_PROVIDER_COOLDOWN_SECONDS,
             provider_base_url_ping_cache_ttl_seconds:
@@ -551,6 +557,15 @@ fn migrate_add_cch_base_config(settings: &mut AppSettings, schema_version_presen
     )
 }
 
+fn migrate_add_silent_startup(settings: &mut AppSettings, schema_version_present: bool) -> bool {
+    // v19: Add silent_startup toggle (default disabled).
+    migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_SILENT_STARTUP,
+    )
+}
+
 fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     Ok(app_paths::app_data_dir(app)?.join("settings.json"))
 }
@@ -669,6 +684,7 @@ pub fn read(app: &tauri::AppHandle) -> AppResult<AppSettings> {
             repaired |= migrate_add_wsl_host_address_mode(&mut settings, schema_version_present);
             repaired |= migrate_add_task_complete_notify(&mut settings, schema_version_present);
             repaired |= migrate_add_cch_base_config(&mut settings, schema_version_present);
+            repaired |= migrate_add_silent_startup(&mut settings, schema_version_present);
             repaired |= sanitize_failover_settings(&mut settings);
             repaired |= sanitize_circuit_breaker_settings(&mut settings);
             repaired |= sanitize_provider_cooldown_seconds(&mut settings);
@@ -736,6 +752,7 @@ pub fn read(app: &tauri::AppHandle) -> AppResult<AppSettings> {
     repaired |= migrate_add_wsl_host_address_mode(&mut settings, schema_version_present);
     repaired |= migrate_add_task_complete_notify(&mut settings, schema_version_present);
     repaired |= migrate_add_cch_base_config(&mut settings, schema_version_present);
+    repaired |= migrate_add_silent_startup(&mut settings, schema_version_present);
     repaired |= sanitize_failover_settings(&mut settings);
     repaired |= sanitize_circuit_breaker_settings(&mut settings);
     repaired |= sanitize_provider_cooldown_seconds(&mut settings);
@@ -1232,6 +1249,28 @@ mod tests {
         let settings = AppSettings::default();
         let canonical = canonical_settings_json(&settings).unwrap();
         assert_ne!(raw, canonical);
+    }
+
+    #[test]
+    fn canonical_settings_json_keeps_silent_startup_when_true() {
+        let settings = AppSettings {
+            silent_startup: true,
+            ..Default::default()
+        };
+        let canonical = canonical_settings_json(&settings).unwrap();
+        assert_eq!(
+            canonical,
+            serde_json::json!({
+                "schema_version": SCHEMA_VERSION,
+                "silent_startup": true
+            })
+        );
+    }
+
+    #[test]
+    fn default_settings_silent_startup_is_false() {
+        let settings = AppSettings::default();
+        assert!(!settings.silent_startup);
     }
 
     // -- migrate_bump_schema_version --

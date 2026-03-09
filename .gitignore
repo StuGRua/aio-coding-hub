@@ -37,3 +37,4 @@ coverage/
 .cursor/
 .trellis/
 .agents/
+.spec-workflow/

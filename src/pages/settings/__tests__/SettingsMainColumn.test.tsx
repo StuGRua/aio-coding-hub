@@ -27,6 +27,8 @@ function renderSettingsMainColumn(
     commitNumberField: vi.fn(),
     autoStart: false,
     setAutoStart: vi.fn(),
+    silentStartup: false,
+    setSilentStartup: vi.fn(),
     trayEnabled: true,
     setTrayEnabled: vi.fn(),
     logRetentionDays: 30,
@@ -43,6 +45,53 @@ function renderSettingsMainColumn(
 }
 
 describe("pages/settings/SettingsMainColumn", () => {
+  it("shows silent startup as auto-start child setting and persists it only when allowed", () => {
+    const setSilentStartup = vi.fn();
+    const requestPersist = vi.fn();
+
+    const { rerender } = renderSettingsMainColumn({
+      autoStart: true,
+      trayEnabled: true,
+      silentStartup: false,
+      setSilentStartup,
+      requestPersist,
+    });
+
+    const silentRow = screen.getByText("静默启动（仅开机自启时）").parentElement?.parentElement;
+    expect(silentRow).toBeTruthy();
+    expect(screen.getByText("开机自动启动时不显示主窗口，保持在系统托盘运行")).toBeInTheDocument();
+    fireEvent.click(within(silentRow as HTMLElement).getByRole("switch"));
+    expect(setSilentStartup).toHaveBeenCalledWith(true);
+    expect(requestPersist).toHaveBeenCalledWith({ silent_startup: true });
+
+    rerender(
+      <SettingsMainColumn
+        gateway={{ running: false, port: null, base_url: null, listen_addr: null } as any}
+        gatewayAvailable="available"
+        settingsReady={true}
+        port={37123}
+        setPort={vi.fn()}
+        commitNumberField={vi.fn()}
+        autoStart={false}
+        setAutoStart={vi.fn()}
+        silentStartup={true}
+        setSilentStartup={setSilentStartup}
+        trayEnabled={true}
+        setTrayEnabled={vi.fn()}
+        logRetentionDays={30}
+        setLogRetentionDays={vi.fn()}
+        requestPersist={requestPersist}
+        noticePermissionStatus="checking"
+        requestingNoticePermission={false}
+        sendingNoticeTest={false}
+        requestSystemNotificationPermission={vi.fn().mockResolvedValue(undefined)}
+        sendSystemNotificationTest={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByText("需先开启开机自启后才会在系统登录时静默启动")).toBeInTheDocument();
+  });
+
   it.each([
     ["checking", "检查中"],
     ["granted", "已授权"],

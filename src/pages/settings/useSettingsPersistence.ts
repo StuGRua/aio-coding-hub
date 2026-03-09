@@ -15,6 +15,7 @@ type PersistedSettings = {
   preferred_port: number;
   auto_start: boolean;
   tray_enabled: boolean;
+  silent_startup: boolean;
   log_retention_days: number;
   provider_cooldown_seconds: number;
   provider_base_url_ping_cache_ttl_seconds: number;
@@ -37,6 +38,7 @@ const DEFAULT_SETTINGS: PersistedSettings = {
   preferred_port: 37123,
   auto_start: false,
   tray_enabled: true,
+  silent_startup: false,
   log_retention_days: 7,
   provider_cooldown_seconds: 30,
   provider_base_url_ping_cache_ttl_seconds: 60,
@@ -71,6 +73,7 @@ export function useSettingsPersistence(options: {
   const [port, setPort] = useState<number>(DEFAULT_SETTINGS.preferred_port);
   const [autoStart, setAutoStart] = useState<boolean>(DEFAULT_SETTINGS.auto_start);
   const [trayEnabled, setTrayEnabled] = useState<boolean>(DEFAULT_SETTINGS.tray_enabled);
+  const [silentStartup, setSilentStartup] = useState<boolean>(DEFAULT_SETTINGS.silent_startup);
   const [logRetentionDays, setLogRetentionDays] = useState<number>(
     DEFAULT_SETTINGS.log_retention_days
   );
@@ -104,6 +107,7 @@ export function useSettingsPersistence(options: {
       preferred_port: settingsValue.preferred_port,
       auto_start: settingsValue.auto_start,
       tray_enabled: settingsValue.tray_enabled ?? DEFAULT_SETTINGS.tray_enabled,
+      silent_startup: settingsValue.silent_startup ?? DEFAULT_SETTINGS.silent_startup,
       log_retention_days: settingsValue.log_retention_days,
       provider_cooldown_seconds:
         settingsValue.provider_cooldown_seconds ?? DEFAULT_SETTINGS.provider_cooldown_seconds,
@@ -155,6 +159,7 @@ export function useSettingsPersistence(options: {
     setPort(nextSettings.preferred_port);
     setAutoStart(nextSettings.auto_start);
     setTrayEnabled(nextSettings.tray_enabled);
+    setSilentStartup(nextSettings.silent_startup);
     setLogRetentionDays(nextSettings.log_retention_days);
     setSettingsReady(true);
   }, [
@@ -192,6 +197,9 @@ export function useSettingsPersistence(options: {
         return;
       case "tray_enabled":
         setTrayEnabled(value as boolean);
+        return;
+      case "silent_startup":
+        setSilentStartup(value as boolean);
         return;
       case "log_retention_days":
         setLogRetentionDays(value as number);
@@ -399,6 +407,7 @@ export function useSettingsPersistence(options: {
         preferredPort: desired.preferred_port,
         autoStart: desired.auto_start,
         trayEnabled: desired.tray_enabled,
+        silentStartup: desired.silent_startup,
         logRetentionDays: desired.log_retention_days,
         providerCooldownSeconds: desired.provider_cooldown_seconds,
         providerBaseUrlPingCacheTtlSeconds: desired.provider_base_url_ping_cache_ttl_seconds,
@@ -422,6 +431,7 @@ export function useSettingsPersistence(options: {
         preferred_port: nextSettings.preferred_port,
         auto_start: nextSettings.auto_start,
         tray_enabled: nextSettings.tray_enabled ?? desired.tray_enabled,
+        silent_startup: nextSettings.silent_startup ?? desired.silent_startup,
         log_retention_days: nextSettings.log_retention_days,
         provider_cooldown_seconds:
           nextSettings.provider_cooldown_seconds ?? desired.provider_cooldown_seconds,
@@ -567,6 +577,8 @@ export function useSettingsPersistence(options: {
     setAutoStart,
     trayEnabled,
     setTrayEnabled,
+    silentStartup,
+    setSilentStartup,
     logRetentionDays,
     setLogRetentionDays,
 

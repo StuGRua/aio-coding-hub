@@ -83,11 +83,12 @@ export async function updaterDownloadAndInstall(options: {
   const { invoke, Channel } = await import("@tauri-apps/api/core");
   const onEvent = typeof options.onEvent === "function" ? options.onEvent : undefined;
 
-  const channel = new Channel<unknown>((message) => {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (message) => {
     const evt = parseUpdaterDownloadEvent(message);
     if (!evt) return;
     onEvent?.(evt);
-  });
+  };
 
   const args: Record<string, unknown> = {
     rid: options.rid,

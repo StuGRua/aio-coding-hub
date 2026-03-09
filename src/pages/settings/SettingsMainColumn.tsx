@@ -31,11 +31,17 @@ export type SettingsMainColumnProps = {
 
   autoStart: boolean;
   setAutoStart: (next: boolean) => void;
+  silentStartup: boolean;
+  setSilentStartup: (next: boolean) => void;
   trayEnabled: boolean;
   setTrayEnabled: (next: boolean) => void;
   logRetentionDays: number;
   setLogRetentionDays: (next: number) => void;
-  requestPersist: (patch: { auto_start?: boolean; tray_enabled?: boolean }) => void;
+  requestPersist: (patch: {
+    auto_start?: boolean;
+    tray_enabled?: boolean;
+    silent_startup?: boolean;
+  }) => void;
 
   noticePermissionStatus: NoticePermissionStatus;
   requestingNoticePermission: boolean;
@@ -57,6 +63,8 @@ export function SettingsMainColumn({
   commitNumberField,
   autoStart,
   setAutoStart,
+  silentStartup,
+  setSilentStartup,
   trayEnabled,
   setTrayEnabled,
   logRetentionDays,
@@ -199,6 +207,28 @@ export function SettingsMainColumn({
                   disabled={!settingsReady}
                 />
               </SettingsRow>
+              <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    静默启动（仅开机自启时）
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {!autoStart
+                      ? "需先开启开机自启后才会在系统登录时静默启动"
+                      : !trayEnabled
+                        ? "需先开启托盘常驻，否则静默启动后将无法找到应用入口"
+                        : "开机自动启动时不显示主窗口，保持在系统托盘运行"}
+                  </div>
+                </div>
+                <Switch
+                  checked={silentStartup}
+                  onCheckedChange={(checked) => {
+                    setSilentStartup(checked);
+                    requestPersist({ silent_startup: checked });
+                  }}
+                  disabled={!settingsReady || !autoStart || !trayEnabled}
+                />
+              </div>
               <SettingsRow label="托盘常驻">
                 <Switch
                   checked={trayEnabled}

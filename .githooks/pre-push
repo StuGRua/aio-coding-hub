@@ -5,15 +5,4 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 echo "[pre-push] Running full pre-push checks (coverage + tauri test + clippy)..."
-
-pnpm test:unit:coverage
-
-# cargo test is broken on Windows due to Tauri upstream bug:
-# https://github.com/tauri-apps/tauri/issues/13419
-if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
-  echo "[pre-push] Skipping tauri:test on Windows (Tauri upstream bug, see tauri-apps/tauri#13419)"
-else
-  pnpm tauri:test
-fi
-
-pnpm tauri:clippy
+pnpm run check:prepush

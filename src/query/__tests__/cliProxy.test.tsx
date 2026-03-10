@@ -82,6 +82,7 @@ describe("query/cliProxy", () => {
 
     await act(async () => {
       const promise = result.current.mutateAsync({ cliKey: "codex", enabled: true });
+      await Promise.resolve(); // let onMutate run
 
       const optimistic = client.getQueryData<CliProxyStatus[] | null>(cliProxyKeys.statusAll());
       expect(optimistic?.find((r) => r.cli_key === "codex")?.enabled).toBe(true);

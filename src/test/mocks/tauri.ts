@@ -98,12 +98,9 @@ export const tauriRequestPermission = vi.fn().mockResolvedValue("denied");
 export const tauriSendNotification = vi.fn();
 
 export class MockChannel<T> {
-  private handler: (message: T) => void;
-  constructor(handler: (message: T) => void) {
-    this.handler = handler;
-  }
+  onmessage: ((message: T) => void) | undefined;
   __emit(message: T) {
-    this.handler(message);
+    this.onmessage?.(message);
   }
 }
 

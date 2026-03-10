@@ -99,8 +99,9 @@ describe("query/sortModes", () => {
 
     const { result } = renderHook(() => useSortModeActiveSetMutation(), { wrapper });
 
-    act(() => {
+    await act(async () => {
       result.current.mutate({ cliKey: "claude", modeId: 2 });
+      await Promise.resolve(); // let onMutate run
     });
 
     expect(client.getQueryData(sortModesKeys.activeList())).toEqual([

@@ -450,6 +450,7 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
           return Boolean(value.trim());
         }).length
       : 0;
+  const supportsOAuth = cliKey === "codex" || cliKey === "gemini";
 
   async function handleOAuthLogin() {
     setOauthLoading(true);
@@ -630,8 +631,8 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
       className="max-w-4xl"
     >
       <div className="space-y-4">
-        {/* ── Auth mode selector (only for Codex — Claude/Gemini OAuth not yet tested) ── */}
-        {cliKey === "codex" ? (
+        {/* ── Auth mode selector (currently enabled for Codex and Gemini) ── */}
+        {supportsOAuth ? (
           <FormField label="认证方式" hint="选择后下方表单会相应变化">
             <TabList<"api_key" | "oauth">
               ariaLabel="认证方式"

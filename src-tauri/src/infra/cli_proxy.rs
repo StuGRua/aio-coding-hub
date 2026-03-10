@@ -616,6 +616,25 @@ fn upsert_root_preferred_auth_method(lines: &mut Vec<String>, value: &str) {
     lines.insert(insert_at, format!("preferred_auth_method = \"{value}\""));
 }
 
+fn upsert_windows_sandbox(lines: &mut Vec<String>) {
+    let header = "[windows]";
+    if let Some(start) = lines.iter().position(|l| l.trim() == header) {
+        let end = find_next_table_header(lines, start.saturating_add(1));
+        let has_sandbox = lines[start + 1..end]
+            .iter()
+            .any(|l| l.trim_start().starts_with("sandbox"));
+        if !has_sandbox {
+            lines.insert(start + 1, "sandbox = \"elevated\"".to_string());
+        }
+    } else {
+        if !lines.is_empty() && !lines.last().unwrap_or(&String::new()).trim().is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(header.to_string());
+        lines.push("sandbox = \"elevated\"".to_string());
+    }
+}
+
 fn build_codex_config_toml(
     current: Option<Vec<u8>>,
     base_url: &str,
@@ -634,6 +653,7 @@ fn build_codex_config_toml(
     upsert_root_model_provider(&mut lines, CODEX_PROVIDER_KEY);
     upsert_root_preferred_auth_method(&mut lines, "apikey");
     upsert_model_provider_base_table(&mut lines, CODEX_PROVIDER_KEY, base_url);
+    upsert_windows_sandbox(&mut lines);
 
     let mut out = lines.join("\n");
     out.push('\n');
@@ -657,6 +677,13 @@ fn build_codex_auth_json(current: Option<Vec<u8>>) -> crate::shared::error::AppR
         "OPENAI_API_KEY".to_string(),
         serde_json::Value::String(PLACEHOLDER_KEY.to_string()),
     );
+    obj.insert(
+        "auth_mode".to_string(),
+        serde_json::Value::String("apikey".to_string()),
+    );
+    // Remove OAuth residuals that would confuse Codex CLI into chatgpt auth mode.
+    obj.remove("tokens");
+    obj.remove("last_refresh");
 
     let mut out = serde_json::to_vec_pretty(&value)
         .map_err(|e| format!("failed to serialize auth.json: {e}"))?;

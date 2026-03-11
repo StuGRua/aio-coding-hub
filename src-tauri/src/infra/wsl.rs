@@ -546,9 +546,9 @@ fn is_windows_absolute_path(p: &str) -> bool {
         && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
-/// Adapt MCP servers for WSL: convert Windows paths, strip .cmd/.bat extensions.
-/// Returns (adapted_servers, bash_preamble_lines) — the bash preamble contains
-/// `wslpath` variable assignments that must run before the config is written.
+/// Adapt MCP servers for WSL: strip .cmd/.bat/.exe extensions from commands,
+/// and convert Windows absolute paths to WSL `/mnt/` mount paths in command,
+/// args, cwd, and env values.
 pub fn adapt_mcp_servers_for_wsl(servers: &[McpServerForSync]) -> Vec<McpServerForSync> {
     servers
         .iter()
@@ -578,6 +578,19 @@ pub fn adapt_mcp_servers_for_wsl(servers: &[McpServerForSync]) -> Vec<McpServerF
                 }
             }
 
+            // Adapt args: convert any Windows absolute paths to WSL /mnt/ paths
+            adapted.args = adapted
+                .args
+                .iter()
+                .map(|arg| {
+                    if is_windows_absolute_path(arg) {
+                        win_path_to_wsl_mount(arg)
+                    } else {
+                        arg.clone()
+                    }
+                })
+                .collect();
+
             // Adapt cwd
             if let Some(ref cwd) = adapted.cwd {
                 if is_windows_absolute_path(cwd) {
@@ -587,6 +600,20 @@ pub fn adapt_mcp_servers_for_wsl(servers: &[McpServerForSync]) -> Vec<McpServerF
                     adapted.cwd = Some(converted);
                 }
             }
+
+            // Adapt env values: convert any Windows absolute paths to WSL /mnt/ paths
+            adapted.env = adapted
+                .env
+                .iter()
+                .map(|(k, v)| {
+                    let converted = if is_windows_absolute_path(v) {
+                        win_path_to_wsl_mount(v)
+                    } else {
+                        v.clone()
+                    };
+                    (k.clone(), converted)
+                })
+                .collect();
 
             adapted
         })
@@ -1717,5 +1744,125 @@ pub fn configure_clients(
         ok: success_ops > 0,
         message,
         distros: distro_reports,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn make_server(
+        command: Option<&str>,
+        args: Vec<&str>,
+        cwd: Option<&str>,
+        env: Vec<(&str, &str)>,
+    ) -> McpServerForSync {
+        McpServerForSync {
+            server_key: "test".to_string(),
+            transport: "stdio".to_string(),
+            command: command.map(|s| s.to_string()),
+            args: args.into_iter().map(|s| s.to_string()).collect(),
+            env: env
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<_, _>>(),
+            cwd: cwd.map(|s| s.to_string()),
+            url: None,
+            headers: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_win_path_to_wsl_mount_drive_letter() {
+        assert_eq!(
+            win_path_to_wsl_mount(r"C:\Users\foo\bar"),
+            "/mnt/c/Users/foo/bar"
+        );
+        assert_eq!(win_path_to_wsl_mount(r"D:\tools\cli"), "/mnt/d/tools/cli");
+    }
+
+    #[test]
+    fn test_win_path_to_wsl_mount_non_absolute() {
+        assert_eq!(win_path_to_wsl_mount(r".\relative\path"), "./relative/path");
+    }
+
+    #[test]
+    fn test_strip_win_exe_ext() {
+        assert_eq!(strip_win_exe_ext("npx.cmd"), "npx");
+        assert_eq!(strip_win_exe_ext("server.exe"), "server");
+        assert_eq!(strip_win_exe_ext("run.bat"), "run");
+        assert_eq!(strip_win_exe_ext("npx"), "npx");
+    }
+
+    #[test]
+    fn test_adapt_converts_args_with_windows_paths() {
+        let servers = vec![make_server(
+            Some("npx.cmd"),
+            vec!["-y", "@mcp/server-fs", r"C:\Users\diao\Documents"],
+            Some(r"C:\Users\diao\project"),
+            vec![],
+        )];
+
+        let adapted = adapt_mcp_servers_for_wsl(&servers);
+
+        assert_eq!(adapted[0].command.as_deref(), Some("npx"));
+        assert_eq!(adapted[0].args[0], "-y");
+        assert_eq!(adapted[0].args[1], "@mcp/server-fs");
+        assert_eq!(adapted[0].args[2], "/mnt/c/Users/diao/Documents");
+        assert_eq!(adapted[0].cwd.as_deref(), Some("/mnt/c/Users/diao/project"));
+    }
+
+    #[test]
+    fn test_adapt_converts_env_with_windows_paths() {
+        let servers = vec![make_server(
+            Some("node"),
+            vec![],
+            None,
+            vec![
+                ("NODE_PATH", r"C:\Users\diao\node_modules"),
+                ("API_KEY", "sk-abc123"),
+            ],
+        )];
+
+        let adapted = adapt_mcp_servers_for_wsl(&servers);
+
+        assert_eq!(
+            adapted[0].env.get("NODE_PATH").unwrap(),
+            "/mnt/c/Users/diao/node_modules"
+        );
+        // Non-path values should remain unchanged
+        assert_eq!(adapted[0].env.get("API_KEY").unwrap(), "sk-abc123");
+    }
+
+    #[test]
+    fn test_adapt_leaves_non_windows_args_unchanged() {
+        let servers = vec![make_server(
+            Some("node"),
+            vec!["--port", "3000", "/home/user/script.js"],
+            None,
+            vec![],
+        )];
+
+        let adapted = adapt_mcp_servers_for_wsl(&servers);
+
+        assert_eq!(
+            adapted[0].args,
+            vec!["--port", "3000", "/home/user/script.js"]
+        );
+    }
+
+    #[test]
+    fn test_adapt_command_windows_absolute_path_uses_basename() {
+        let servers = vec![make_server(
+            Some(r"C:\Program Files\tool\server.exe"),
+            vec![],
+            None,
+            vec![],
+        )];
+
+        let adapted = adapt_mcp_servers_for_wsl(&servers);
+
+        assert_eq!(adapted[0].command.as_deref(), Some("server"));
     }
 }

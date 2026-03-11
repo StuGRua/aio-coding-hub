@@ -301,6 +301,7 @@ describe("components/cli-manager/WslSettingsCard", () => {
         settings={
           {
             gateway_listen_mode: "localhost",
+            wsl_auto_config: true,
             wsl_host_address_mode: "auto",
             wsl_custom_host_address: "127.0.0.1",
             preferred_port: 37123,
@@ -313,7 +314,9 @@ describe("components/cli-manager/WslSettingsCard", () => {
       />
     );
 
-    expect(screen.getByText(/应用会在启动时自动切换监听模式以支持 WSL/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/当前监听模式为"仅本地"，WSL 无法访问网关。启动时会提示切换监听模式。/)
+    ).toBeInTheDocument();
   });
 
   it("does not show localhost warning when listen mode is not localhost", () => {
@@ -352,7 +355,7 @@ describe("components/cli-manager/WslSettingsCard", () => {
       />
     );
 
-    expect(screen.queryByText(/应用会在启动时自动切换监听模式以支持 WSL/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/当前监听模式为"仅本地"，WSL 无法访问网关/)).not.toBeInTheDocument();
   });
 
   it("shows auto-config hint", () => {
@@ -379,6 +382,7 @@ describe("components/cli-manager/WslSettingsCard", () => {
         settings={
           {
             gateway_listen_mode: "wsl_auto",
+            wsl_auto_config: true,
             wsl_host_address_mode: "auto",
             wsl_custom_host_address: "127.0.0.1",
             preferred_port: 37123,
@@ -391,7 +395,9 @@ describe("components/cli-manager/WslSettingsCard", () => {
       />
     );
 
-    expect(screen.getByText("应用启动时会自动检测并配置 WSL 环境。")).toBeInTheDocument();
+    expect(
+      screen.getByText("已启用：应用启动时自动检测并配置 WSL 环境，修改相关设置时自动同步。")
+    ).toBeInTheDocument();
   });
 
   it("listens for wsl:auto_config_result event and updates state", async () => {
@@ -535,8 +541,9 @@ describe("components/cli-manager/WslSettingsCard", () => {
     // Open advanced section (details content is hidden from accessibility tree when collapsed).
     fireEvent.click(screen.getByText("高级选项（地址兜底）"));
 
-    // Enable custom host address mode.
-    fireEvent.click(screen.getByRole("switch", { hidden: true }));
+    // Enable custom host address mode (second switch — first is "自动同步配置").
+    const switches = screen.getAllByRole("switch", { hidden: true });
+    fireEvent.click(switches[1]);
 
     await waitFor(() => {
       expect(settingsSetMutation.mutateAsync).toHaveBeenCalledWith({
@@ -604,9 +611,10 @@ describe("components/cli-manager/WslSettingsCard", () => {
 
     render(<WslSettingsCard available={true} saving={false} settings={settings} />);
 
-    // Open advanced section and enable custom mode.
+    // Open advanced section and enable custom mode (second switch).
     fireEvent.click(screen.getByText("高级选项（地址兜底）"));
-    fireEvent.click(screen.getByRole("switch", { hidden: true }));
+    const switches = screen.getAllByRole("switch", { hidden: true });
+    fireEvent.click(switches[1]);
     await waitFor(() => {
       expect(settingsSetMutation.mutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({ wslHostAddressMode: "custom" })

@@ -95,4 +95,129 @@ describe("pages/SessionsPage", () => {
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByText("Beta")).toBeInTheDocument();
   });
+
+  it("switches source tab", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([
+      {
+        source: "claude",
+        id: "proj-1",
+        display_path: "/home/user/proj",
+        short_name: "CProject",
+        session_count: 1,
+        last_modified: 1740000000,
+        model_provider: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    expect(await screen.findByText("CProject")).toBeInTheDocument();
+    const codexTab = screen.getByText("Codex");
+    fireEvent.click(codexTab);
+    // After switching, projects query re-fetches
+    expect(cliSessionsProjectsList).toHaveBeenCalledWith("codex", undefined);
+  });
+
+  it("changes sort key", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([
+      {
+        source: "claude",
+        id: "proj-1",
+        display_path: "/a",
+        short_name: "Zulu",
+        session_count: 1,
+        last_modified: 1740000000,
+        model_provider: null,
+        wsl_distro: null,
+      },
+      {
+        source: "claude",
+        id: "proj-2",
+        display_path: "/b",
+        short_name: "Alpha",
+        session_count: 10,
+        last_modified: 1740000100,
+        model_provider: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    expect(await screen.findByText("Zulu")).toBeInTheDocument();
+    const sortSelect = screen.getByLabelText("排序");
+    fireEvent.change(sortSelect, { target: { value: "sessions" } });
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    fireEvent.change(sortSelect, { target: { value: "name" } });
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+  });
+
+  it("renders empty state when no projects", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    expect(await screen.findByText("未找到任何项目")).toBeInTheDocument();
+  });
+
+  it("copies source dir hint on button click", async () => {
+    setTauriRuntime();
+    const { copyText } = await import("../../services/clipboard");
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([
+      {
+        source: "claude",
+        id: "proj-1",
+        display_path: "/a",
+        short_name: "P1",
+        session_count: 1,
+        last_modified: 1740000000,
+        model_provider: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    expect(await screen.findByText("P1")).toBeInTheDocument();
+    const copyBtn = screen.getByTitle("复制数据源路径提示");
+    fireEvent.click(copyBtn);
+    expect(copyText).toHaveBeenCalled();
+  });
+
+  it("handles refresh button", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([
+      {
+        source: "claude",
+        id: "proj-1",
+        display_path: "/a",
+        short_name: "P1",
+        session_count: 1,
+        last_modified: 1740000000,
+        model_provider: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    expect(await screen.findByText("P1")).toBeInTheDocument();
+    const refreshBtn = screen.getByText("刷新");
+    fireEvent.click(refreshBtn);
+    // Refetch should be triggered
+    expect(cliSessionsProjectsList).toHaveBeenCalledTimes(2);
+  });
+
+  it("navigates to project on click", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsProjectsList).mockResolvedValue([
+      {
+        source: "claude",
+        id: "proj-1",
+        display_path: "/a",
+        short_name: "ClickMe",
+        session_count: 1,
+        last_modified: 1740000000,
+        model_provider: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithProviders(<SessionsPage />, { route: "/?source=claude" });
+    const projectBtn = await screen.findByText("ClickMe");
+    fireEvent.click(projectBtn);
+  });
 });

@@ -183,6 +183,177 @@ pub(crate) async fn wsl_configure_clients(
     Ok(report)
 }
 
+/// Core WSL auto-sync logic shared by settings-change sync and MCP/Prompt-change sync.
+/// Checks preconditions (wsl_auto_config enabled, listen mode != Localhost),
+/// detects WSL, resolves host, gathers sync data, and configures CLI clients.
+#[cfg(windows)]
+pub(crate) async fn wsl_auto_sync_core(app: &tauri::AppHandle) -> Result<(), String> {
+    use crate::app_state::{ensure_db_ready, DbInitState, GatewayState};
+    use crate::shared::mutex_ext::MutexExt;
+
+    // 1. Read settings and check preconditions
+    let cfg = blocking::run("wsl_core_read_settings", {
+        let app = app.clone();
+        move || -> crate::shared::error::AppResult<settings::AppSettings> {
+            Ok(settings::read(&app).unwrap_or_default())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if !cfg.wsl_auto_config {
+        tracing::debug!("WSL auto-sync core: wsl_auto_config disabled, skipping");
+        return Ok(());
+    }
+
+    if cfg.gateway_listen_mode == settings::GatewayListenMode::Localhost {
+        tracing::debug!("WSL auto-sync core: listen mode is localhost, skipping");
+        return Ok(());
+    }
+
+    // 2. Get gateway port
+    let port = {
+        let state = app.state::<GatewayState>();
+        let manager = state.0.lock_or_recover();
+        let status = manager.status();
+        match status.port {
+            Some(p) => p,
+            None => {
+                tracing::debug!("WSL auto-sync core: gateway not running, skipping");
+                return Ok(());
+            }
+        }
+    };
+
+    // 3. Detect WSL
+    let detection = blocking::run(
+        "wsl_core_detect",
+        || -> crate::shared::error::AppResult<wsl::WslDetection> { Ok(wsl::detect()) },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if !detection.detected || detection.distros.is_empty() {
+        tracing::debug!("WSL auto-sync core: no WSL environment detected, skipping");
+        return Ok(());
+    }
+
+    // 4. Resolve host
+    let host = match cfg.gateway_listen_mode {
+        settings::GatewayListenMode::Localhost => "127.0.0.1".to_string(),
+        settings::GatewayListenMode::WslAuto | settings::GatewayListenMode::Lan => {
+            wsl::resolve_wsl_host(&cfg)
+        }
+        settings::GatewayListenMode::Custom => {
+            let parsed =
+                gateway::listen::parse_custom_listen_address(&cfg.gateway_custom_listen_address)
+                    .map_err(|e| format!("invalid custom listen address: {e}"))?;
+            if gateway::listen::is_wildcard_host(&parsed.host) {
+                wsl::resolve_wsl_host(&cfg)
+            } else {
+                parsed.host
+            }
+        }
+    };
+
+    let proxy_origin = format!("http://{}", gateway::listen::format_host_port(&host, port));
+    let targets = cfg.wsl_target_cli;
+    let distros = detection.distros;
+
+    // 5. Gather MCP and Prompt sync data
+    let db_state = app.state::<DbInitState>();
+    let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
+
+    let (mcp_data, prompt_data) = blocking::run("wsl_core_gather_sync_data", {
+        let db = db.clone();
+        let app = app.clone();
+        let first_distro = distros.first().cloned().unwrap_or_default();
+        move || -> crate::shared::error::AppResult<(wsl::WslMcpSyncData, wsl::WslPromptSyncData)> {
+            let conn = db.open_connection()?;
+            let mcp = wsl::gather_mcp_sync_data(&conn, &app, &first_distro)?;
+            let prompts = wsl::gather_prompt_sync_data(&conn)?;
+            Ok((mcp, prompts))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 6. Configure clients
+    let app_for_sync = app.clone();
+    let report = blocking::run(
+        "wsl_core_configure",
+        move || -> crate::shared::error::AppResult<wsl::WslConfigureReport> {
+            Ok(wsl::configure_clients(
+                &distros,
+                &targets,
+                &proxy_origin,
+                Some(&app_for_sync),
+                Some(&mcp_data),
+                Some(&prompt_data),
+            ))
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    tracing::info!(
+        ok = report.ok,
+        message = %report.message,
+        "WSL auto-sync core completed"
+    );
+
+    let _ = app.emit("wsl:auto_config_result", &report);
+
+    Ok(())
+}
+
+/// Debounced WSL sync trigger for MCP/Prompt changes.
+/// Uses a background task with 500ms debounce window to coalesce rapid changes.
+#[cfg(windows)]
+pub(crate) mod wsl_sync_trigger {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+
+    static TRIGGER_NOTIFY: OnceLock<Notify> = OnceLock::new();
+    static TASK_SPAWNED: AtomicBool = AtomicBool::new(false);
+
+    fn trigger_notify() -> &'static Notify {
+        TRIGGER_NOTIFY.get_or_init(Notify::new)
+    }
+
+    /// Fire-and-forget trigger. Notifies the background debounce task to schedule a WSL sync.
+    /// If the background task hasn't been spawned yet, it will be spawned on first call.
+    pub(crate) fn trigger(app: tauri::AppHandle) {
+        if !TASK_SPAWNED.swap(true, Ordering::SeqCst) {
+            tauri::async_runtime::spawn(debounce_loop(app));
+        }
+        trigger_notify().notify_one();
+    }
+
+    async fn debounce_loop(app: tauri::AppHandle) {
+        const DEBOUNCE: Duration = Duration::from_millis(500);
+        let notify = trigger_notify();
+
+        loop {
+            // Wait for initial trigger
+            notify.notified().await;
+
+            // Debounce: keep resetting while new notifications arrive within the window
+            while tokio::time::timeout(DEBOUNCE, notify.notified())
+                .await
+                .is_ok()
+            {}
+
+            // Execute sync
+            if let Err(err) = super::wsl_auto_sync_core(&app).await {
+                tracing::warn!("WSL debounced sync failed: {}", err);
+            }
+        }
+    }
+}
+
 /// WSL startup auto-configure: detect WSL environment and configure all CLI clients.
 /// If the current listen mode is localhost, emit an event to prompt the user to switch.
 #[cfg(windows)]

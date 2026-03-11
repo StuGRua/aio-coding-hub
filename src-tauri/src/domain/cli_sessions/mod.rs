@@ -107,6 +107,26 @@ pub fn messages_get(
     }
 }
 
+/// Delete a session file. file_path must be a .jsonl file within a valid root directory.
+pub fn session_delete(
+    app: &tauri::AppHandle,
+    source: CliSessionsSource,
+    file_path: &str,
+    wsl_distro: Option<&str>,
+) -> AppResult<bool> {
+    if let Some(distro) = wsl_distro {
+        crate::wsl::validate_distro(distro)?;
+        return match source {
+            CliSessionsSource::Claude => claude::wsl_session_delete(distro, file_path),
+            CliSessionsSource::Codex => codex::wsl_session_delete(distro, file_path),
+        };
+    }
+    match source {
+        CliSessionsSource::Claude => claude::session_delete(app, file_path),
+        CliSessionsSource::Codex => codex::session_delete(app, file_path),
+    }
+}
+
 pub(super) fn truncate_string(raw: &str, max_len: usize) -> String {
     if raw.len() <= max_len {
         return raw.to_string();

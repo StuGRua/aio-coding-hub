@@ -9,6 +9,7 @@ import {
   cliSessionsProjectsList,
   cliSessionsSessionsList,
   cliSessionsMessagesGet,
+  cliSessionsSessionDelete,
   escapeShellArg,
 } from "../cliSessions";
 
@@ -82,6 +83,33 @@ describe("services/cliSessions", () => {
         pageSize: 50,
         fromEnd: true,
         wslDistro: null,
+      });
+    });
+  });
+
+  describe("cliSessionsSessionDelete", () => {
+    it("calls invokeService with correct args", async () => {
+      await cliSessionsSessionDelete({
+        source: "claude",
+        file_paths: ["/f1.json", "/f2.json"],
+      });
+      expect(invokeService).toHaveBeenCalledWith("删除会话失败", "cli_sessions_session_delete", {
+        source: "claude",
+        filePaths: ["/f1.json", "/f2.json"],
+        wslDistro: null,
+      });
+    });
+
+    it("passes wsl_distro when provided", async () => {
+      await cliSessionsSessionDelete({
+        source: "codex",
+        file_paths: ["/f.json"],
+        wsl_distro: "Ubuntu",
+      });
+      expect(invokeService).toHaveBeenCalledWith("删除会话失败", "cli_sessions_session_delete", {
+        source: "codex",
+        filePaths: ["/f.json"],
+        wslDistro: "Ubuntu",
       });
     });
   });

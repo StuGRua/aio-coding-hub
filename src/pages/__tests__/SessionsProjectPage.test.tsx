@@ -137,4 +137,172 @@ describe("pages/SessionsProjectPage", () => {
     expect(screen.queryByText("Alpha task")).not.toBeInTheDocument();
     expect(screen.getByText("Beta task")).toBeInTheDocument();
   });
+
+  it("changes sort key", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([
+      {
+        source: "claude",
+        session_id: "s-1",
+        file_path: "/f1.json",
+        first_prompt: "First",
+        message_count: 10,
+        created_at: 1740000000,
+        modified_at: 1740000100,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+      {
+        source: "claude",
+        session_id: "s-2",
+        file_path: "/f2.json",
+        first_prompt: "Second",
+        message_count: 20,
+        created_at: 1740000100,
+        modified_at: 1740000000,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("First")).toBeInTheDocument();
+    const sortSelect = screen.getByLabelText("排序");
+    fireEvent.change(sortSelect, { target: { value: "messages" } });
+    expect(screen.getByText("Second")).toBeInTheDocument();
+    fireEvent.change(sortSelect, { target: { value: "created" } });
+    expect(screen.getByText("Second")).toBeInTheDocument();
+  });
+
+  it("toggles select all checkbox and opens delete dialog", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([
+      {
+        source: "claude",
+        session_id: "s-1",
+        file_path: "/f1.json",
+        first_prompt: "Task A",
+        message_count: 1,
+        created_at: 1740000000,
+        modified_at: 1740000000,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("Task A")).toBeInTheDocument();
+    const selectAll = screen.getByLabelText("全选");
+    fireEvent.click(selectAll);
+    // Delete button should appear
+    expect(screen.getByText(/删除/)).toBeInTheDocument();
+    // Deselect all
+    fireEvent.click(selectAll);
+  });
+
+  it("handles single delete button click", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([
+      {
+        source: "claude",
+        session_id: "s-1",
+        file_path: "/f1.json",
+        first_prompt: "Task A",
+        message_count: 1,
+        created_at: 1740000000,
+        modified_at: 1740000000,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("Task A")).toBeInTheDocument();
+    const deleteBtn = screen.getByTitle("删除会话");
+    fireEvent.click(deleteBtn);
+    expect(screen.getByText("确认删除会话")).toBeInTheDocument();
+  });
+
+  it("copies resume command on button click", async () => {
+    setTauriRuntime();
+    const { copyText } = await import("../../services/clipboard");
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([
+      {
+        source: "claude",
+        session_id: "s-abc",
+        file_path: "/f1.json",
+        first_prompt: "Task",
+        message_count: 1,
+        created_at: 1740000000,
+        modified_at: 1740000000,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("Task")).toBeInTheDocument();
+    const copyBtn = screen.getByTitle("复制恢复命令");
+    fireEvent.click(copyBtn);
+    expect(copyText).toHaveBeenCalled();
+  });
+
+  it("renders session with replacement chars stripped from title", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([
+      {
+        source: "claude",
+        session_id: "s-1",
+        file_path: "/f1.json",
+        first_prompt: "Hello\uFFFDWorld",
+        message_count: 1,
+        created_at: 1740000000,
+        modified_at: 1740000000,
+        git_branch: null,
+        project_path: null,
+        is_sidechain: null,
+        cwd: null,
+        model_provider: null,
+        cli_version: null,
+        wsl_distro: null,
+      },
+    ]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("HelloWorld")).toBeInTheDocument();
+  });
+
+  it("renders empty state when no sessions", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([]);
+    renderWithRoute("/sessions/claude/proj1");
+    expect(await screen.findByText("此项目没有会话记录")).toBeInTheDocument();
+  });
+
+  it("renders with WSL distro param", async () => {
+    setTauriRuntime();
+    vi.mocked(cliSessionsSessionsList).mockResolvedValue([]);
+    renderWithRoute("/sessions/claude/proj1?distro=Ubuntu");
+    expect(await screen.findByText(/WSL: Ubuntu/)).toBeInTheDocument();
+  });
 });

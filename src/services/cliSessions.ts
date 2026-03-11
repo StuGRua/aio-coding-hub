@@ -104,6 +104,18 @@ export async function cliSessionsMessagesGet(input: {
   );
 }
 
+export async function cliSessionsSessionDelete(input: {
+  source: CliSessionsSource;
+  file_paths: string[];
+  wsl_distro?: string;
+}) {
+  return invokeService<string[]>("删除会话失败", "cli_sessions_session_delete", {
+    source: input.source,
+    filePaths: input.file_paths,
+    wslDistro: input.wsl_distro ?? null,
+  });
+}
+
 /**
  * Escapes a shell argument for safe command execution across platforms.
  *

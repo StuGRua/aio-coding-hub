@@ -630,6 +630,17 @@ pub fn messages_get(
     })
 }
 
+pub fn session_delete(app: &tauri::AppHandle, file_path: &str) -> AppResult<bool> {
+    let resolved = resolve_and_validate_session_file_path(app, file_path)?;
+    fs::remove_file(&resolved).map_err(|e| {
+        AppError::new(
+            "INTERNAL_ERROR",
+            format!("failed to delete session file: {e}"),
+        )
+    })?;
+    Ok(true)
+}
+
 // ── WSL support ─────────────────────────────────────────────────────────────
 
 fn wsl_codex_sessions_dir(distro: &str) -> AppResult<PathBuf> {
@@ -853,4 +864,23 @@ pub fn wsl_messages_get(
         page_size,
         has_more,
     })
+}
+
+pub fn wsl_session_delete(distro: &str, file_path: &str) -> AppResult<bool> {
+    let root = wsl_codex_sessions_dir(distro)?;
+    let raw = PathBuf::from(file_path);
+    if raw.extension().map(|e| e != "jsonl").unwrap_or(true) {
+        return Err(AppError::new(
+            "SEC_INVALID_INPUT",
+            "filePath must be a .jsonl file",
+        ));
+    }
+    let resolved = super::validate_path_under_root(&raw, &root)?;
+    fs::remove_file(&resolved).map_err(|e| {
+        AppError::new(
+            "INTERNAL_ERROR",
+            format!("failed to delete WSL session file: {e}"),
+        )
+    })?;
+    Ok(true)
 }

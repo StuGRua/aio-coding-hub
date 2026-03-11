@@ -283,6 +283,7 @@ pub fn run() {
             cli_sessions_projects_list,
             cli_sessions_sessions_list,
             cli_sessions_messages_get,
+            cli_sessions_session_delete,
             // ── providers ──
             providers_list,
             provider_upsert,

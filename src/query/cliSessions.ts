@@ -1,8 +1,16 @@
-import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   cliSessionsMessagesGet,
   cliSessionsProjectsList,
+  cliSessionsSessionDelete,
   cliSessionsSessionsList,
+  type CliSessionsSessionSummary,
   type CliSessionsSource,
 } from "../services/cliSessions";
 import { cliSessionsKeys } from "./keys";
@@ -51,5 +59,44 @@ export function useCliSessionsMessagesInfiniteQuery(
     enabled: Boolean(filePath.trim()) && (options?.enabled ?? true),
     getNextPageParam: (lastPage) => (lastPage?.has_more ? lastPage.page + 1 : undefined),
     initialPageParam: 0,
+  });
+}
+
+export function useCliSessionsSessionDeleteMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: {
+      source: CliSessionsSource;
+      filePaths: string[];
+      projectId: string;
+      wslDistro?: string;
+    }) =>
+      cliSessionsSessionDelete({
+        source: input.source,
+        file_paths: input.filePaths,
+        wsl_distro: input.wslDistro,
+      }),
+    onSuccess: (failedList, input) => {
+      if (!failedList) return;
+      const deletedPaths = new Set(
+        input.filePaths.filter((fp) => !failedList.some((f) => f.startsWith(fp)))
+      );
+      if (deletedPaths.size === 0) return;
+      const key = cliSessionsKeys.sessionsList(input.source, input.projectId, input.wslDistro);
+      queryClient.setQueryData<CliSessionsSessionSummary[] | null>(key, (prev) => {
+        if (!prev) return prev;
+        return prev.filter((s) => !deletedPaths.has(s.file_path));
+      });
+    },
+    onSettled: (_res, _err, input) => {
+      if (!input) return;
+      queryClient.invalidateQueries({
+        queryKey: cliSessionsKeys.sessionsList(input.source, input.projectId, input.wslDistro),
+      });
+      queryClient.invalidateQueries({
+        queryKey: cliSessionsKeys.projectsList(input.source, input.wslDistro),
+      });
+    },
   });
 }

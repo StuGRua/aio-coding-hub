@@ -33,8 +33,10 @@ pub(crate) async fn mcp_server_upsert(
     url: Option<String>,
     headers: std::collections::BTreeMap<String, String>,
 ) -> Result<mcp::McpServerSummary, String> {
+    #[cfg(windows)]
+    let app_for_wsl = app.clone();
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-    blocking::run("mcp_server_upsert", move || {
+    let result = blocking::run("mcp_server_upsert", move || {
         mcp::upsert(
             &app,
             &db,
@@ -51,7 +53,12 @@ pub(crate) async fn mcp_server_upsert(
         )
     })
     .await
-    .map_err(Into::into)
+    .map_err(Into::into);
+    #[cfg(windows)]
+    if result.is_ok() {
+        super::wsl::wsl_sync_trigger::trigger(app_for_wsl);
+    }
+    result
 }
 
 #[tauri::command]
@@ -62,12 +69,19 @@ pub(crate) async fn mcp_server_set_enabled(
     server_id: i64,
     enabled: bool,
 ) -> Result<mcp::McpServerSummary, String> {
+    #[cfg(windows)]
+    let app_for_wsl = app.clone();
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-    blocking::run("mcp_server_set_enabled", move || {
+    let result = blocking::run("mcp_server_set_enabled", move || {
         mcp::set_enabled(&app, &db, workspace_id, server_id, enabled)
     })
     .await
-    .map_err(Into::into)
+    .map_err(Into::into);
+    #[cfg(windows)]
+    if result.is_ok() {
+        super::wsl::wsl_sync_trigger::trigger(app_for_wsl);
+    }
+    result
 }
 
 #[tauri::command]
@@ -76,8 +90,10 @@ pub(crate) async fn mcp_server_delete(
     db_state: tauri::State<'_, DbInitState>,
     server_id: i64,
 ) -> Result<bool, String> {
+    #[cfg(windows)]
+    let app_for_wsl = app.clone();
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-    blocking::run(
+    let result = blocking::run(
         "mcp_server_delete",
         move || -> crate::shared::error::AppResult<bool> {
             mcp::delete(&app, &db, server_id)?;
@@ -85,7 +101,12 @@ pub(crate) async fn mcp_server_delete(
         },
     )
     .await
-    .map_err(Into::into)
+    .map_err(Into::into);
+    #[cfg(windows)]
+    if result.is_ok() {
+        super::wsl::wsl_sync_trigger::trigger(app_for_wsl);
+    }
+    result
 }
 
 #[tauri::command]
@@ -100,12 +121,19 @@ pub(crate) async fn mcp_import_servers(
     workspace_id: i64,
     servers: Vec<mcp::McpImportServer>,
 ) -> Result<mcp::McpImportReport, String> {
+    #[cfg(windows)]
+    let app_for_wsl = app.clone();
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-    blocking::run("mcp_import_servers", move || {
+    let result = blocking::run("mcp_import_servers", move || {
         mcp::import_servers(&app, &db, workspace_id, servers)
     })
     .await
-    .map_err(Into::into)
+    .map_err(Into::into);
+    #[cfg(windows)]
+    if result.is_ok() {
+        super::wsl::wsl_sync_trigger::trigger(app_for_wsl);
+    }
+    result
 }
 
 #[tauri::command]
@@ -114,10 +142,17 @@ pub(crate) async fn mcp_import_from_workspace_cli(
     db_state: tauri::State<'_, DbInitState>,
     workspace_id: i64,
 ) -> Result<mcp::McpImportReport, String> {
+    #[cfg(windows)]
+    let app_for_wsl = app.clone();
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-    blocking::run("mcp_import_from_workspace_cli", move || {
+    let result = blocking::run("mcp_import_from_workspace_cli", move || {
         mcp::import_servers_from_workspace_cli(&app, &db, workspace_id)
     })
     .await
-    .map_err(Into::into)
+    .map_err(Into::into);
+    #[cfg(windows)]
+    if result.is_ok() {
+        super::wsl::wsl_sync_trigger::trigger(app_for_wsl);
+    }
+    result
 }

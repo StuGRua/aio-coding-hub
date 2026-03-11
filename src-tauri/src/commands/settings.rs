@@ -1,10 +1,6 @@
 //! Usage: Settings-related Tauri commands.
 
 use crate::{blocking, resident, settings};
-#[cfg(windows)]
-use crate::{gateway, wsl};
-#[cfg(windows)]
-use tauri::Emitter;
 use tauri::Manager;
 
 /// Encapsulates all fields for the `settings_set` command.
@@ -360,109 +356,8 @@ pub(crate) async fn settings_codex_session_id_completion_set(
 }
 
 /// Background WSL sync triggered after settings change.
-/// Reads current settings, resolves host, detects WSL distros, and configures CLI clients.
+/// Delegates to the shared `wsl_auto_sync_core` which handles all precondition checks.
 #[cfg(windows)]
 async fn wsl_auto_sync_after_settings(app: &tauri::AppHandle) -> Result<(), String> {
-    use crate::app_state::{ensure_db_ready, DbInitState, GatewayState};
-    use crate::shared::mutex_ext::MutexExt;
-
-    let cfg = blocking::run("wsl_sync_read_settings", {
-        let app = app.clone();
-        move || -> crate::shared::error::AppResult<settings::AppSettings> {
-            Ok(settings::read(&app).unwrap_or_default())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let port = {
-        let state = app.state::<GatewayState>();
-        let manager = state.0.lock_or_recover();
-        let status = manager.status();
-        match status.port {
-            Some(p) => p,
-            None => {
-                tracing::debug!("WSL auto-sync: gateway not running, skipping");
-                return Ok(());
-            }
-        }
-    };
-
-    let detection = blocking::run(
-        "wsl_sync_detect",
-        || -> crate::shared::error::AppResult<wsl::WslDetection> { Ok(wsl::detect()) },
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    if !detection.detected || detection.distros.is_empty() {
-        tracing::debug!("WSL auto-sync: no WSL environment detected, skipping");
-        return Ok(());
-    }
-
-    let host = match cfg.gateway_listen_mode {
-        settings::GatewayListenMode::Localhost => "127.0.0.1".to_string(),
-        settings::GatewayListenMode::WslAuto | settings::GatewayListenMode::Lan => {
-            wsl::resolve_wsl_host(&cfg)
-        }
-        settings::GatewayListenMode::Custom => {
-            let parsed =
-                gateway::listen::parse_custom_listen_address(&cfg.gateway_custom_listen_address)
-                    .map_err(|e| format!("invalid custom listen address: {e}"))?;
-            if gateway::listen::is_wildcard_host(&parsed.host) {
-                wsl::resolve_wsl_host(&cfg)
-            } else {
-                parsed.host
-            }
-        }
-    };
-
-    let proxy_origin = format!("http://{}", gateway::listen::format_host_port(&host, port));
-    let targets = cfg.wsl_target_cli;
-    let distros = detection.distros;
-
-    // Gather MCP and Prompt sync data
-    let db_state = app.state::<DbInitState>();
-    let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
-
-    let (mcp_data, prompt_data) = blocking::run("wsl_sync_gather_sync_data", {
-        let db = db.clone();
-        let app = app.clone();
-        let first_distro = distros.first().cloned().unwrap_or_default();
-        move || -> crate::shared::error::AppResult<(wsl::WslMcpSyncData, wsl::WslPromptSyncData)> {
-            let conn = db.open_connection()?;
-            let mcp = wsl::gather_mcp_sync_data(&conn, &app, &first_distro)?;
-            let prompts = wsl::gather_prompt_sync_data(&conn)?;
-            Ok((mcp, prompts))
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let app_for_sync = app.clone();
-    let report = blocking::run(
-        "wsl_sync_configure",
-        move || -> crate::shared::error::AppResult<wsl::WslConfigureReport> {
-            Ok(wsl::configure_clients(
-                &distros,
-                &targets,
-                &proxy_origin,
-                Some(&app_for_sync),
-                Some(&mcp_data),
-                Some(&prompt_data),
-            ))
-        },
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    tracing::info!(
-        ok = report.ok,
-        message = %report.message,
-        "WSL auto-sync after settings change completed"
-    );
-
-    let _ = app.emit("wsl:auto_config_result", &report);
-
-    Ok(())
+    super::wsl::wsl_auto_sync_core(app).await
 }

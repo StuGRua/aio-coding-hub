@@ -7,7 +7,7 @@ fn check_webview2_registry(hkey: windows_sys::Win32::System::Registry::HKEY, sub
 
     let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
     let value_name: Vec<u16> = "pv".encode_utf16().chain(std::iter::once(0)).collect();
-    let mut hkey_result: HKEY = 0;
+    let mut hkey_result: HKEY = std::ptr::null_mut();
 
     let status =
         unsafe { RegOpenKeyExW(hkey, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey_result) };

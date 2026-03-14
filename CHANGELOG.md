@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.1](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.31.0...aio-coding-hub-v0.31.1) (2026-03-14)
+
+
+### Features
+
+* **build:** 添加Windows便携版ZIP构建和WebView2检查 ([fef41e1](https://github.com/dyndynjyxa/aio-coding-hub/commit/fef41e12f2a1301743b40de4c7402f4b02fa80f4))
+
 ## [0.31.0](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.30.15...aio-coding-hub-v0.31.0) (2026-03-12)
 
 
